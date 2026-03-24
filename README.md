@@ -1,35 +1,35 @@
 # claude-p2p
 
-Claude Code 인스턴스 간 P2P 직접 통신 MCP 서버.
+A peer-to-peer MCP server for direct communication between Claude Code instances.
 
-같은 팀의 개발자들이 각자 Claude Code 세션을 열고 작업할 때, 별도 인프라 없이 서로의 세션에 직접 연결하여 코드 리뷰, 질문, 컨텍스트 공유를 실시간으로 할 수 있습니다.
+Team members running separate Claude Code sessions can discover each other, exchange messages, and share work context in real-time — without any external infrastructure.
 
-## 특징
+## Features
 
-- **제로 인프라** — 중앙 서버, 브로커, 외부 서비스 없음
-- **LAN 자동 발견** — mDNS로 같은 네트워크 피어 자동 감지
-- **인터넷 연결** — 토픽 코드로 원격 피어 연결 (DHT 기반)
-- **실시간 메시징** — 1:1 직접 메시지 + 토픽 브로드캐스트
-- **작업 컨텍스트 공유** — 현재 작업 요약, git 레포/브랜치 자동 감지
-- **종단간 암호화** — Noise 프로토콜 (libp2p 내장)
-- **NAT 통과** — 홀펀칭 + Circuit Relay v2 자동 폴백
-- **단일 바이너리** — Go로 빌드, 크로스 플랫폼 (macOS/Linux/Windows)
+- **Zero infrastructure** — No central server, broker, or external service
+- **LAN auto-discovery** — mDNS finds peers on the same network automatically
+- **Internet connectivity** — Connect remote peers via shared topic codes (DHT-based)
+- **Real-time messaging** — Direct 1:1 messages + topic broadcast
+- **Work context sharing** — Share current task summary, git repo/branch auto-detected
+- **End-to-end encryption** — Noise protocol (built into libp2p)
+- **NAT traversal** — Hole punching + Circuit Relay v2 fallback
+- **Single binary** — Built with Go, cross-platform (macOS/Linux/Windows)
 
-## 아키텍처
+## Architecture
 
 ```
-팀원 A (서울)                          팀원 B (미국)
+Developer A (Seoul)                    Developer B (US)
 ┌──────────────┐                      ┌──────────────┐
 │ Claude Code  │                      │ Claude Code  │
 │     ↕ stdio  │                      │     ↕ stdio  │
-│ claude-p2p   │ ←── libp2p 직접 ───→ │ claude-p2p   │
-│ (단일 바이너리)│    Noise 암호화       │ (단일 바이너리)│
-└──────────────┘    NAT 홀펀칭         └──────────────┘
+│ claude-p2p   │ ←── libp2p ────────→ │ claude-p2p   │
+│  (single bin)│    Noise encryption  │  (single bin)│
+└──────────────┘    NAT hole-punch    └──────────────┘
 ```
 
-## 빠른 시작
+## Quick Start
 
-### 1. 빌드
+### 1. Build
 
 ```bash
 git clone https://github.com/jlim/claude-p2p.git
@@ -37,9 +37,15 @@ cd claude-p2p
 go build -o claude-p2p .
 ```
 
-### 2. Claude Code에 등록
+### 2. Register with Claude Code
 
-프로젝트 루트 또는 `~/.claude.json`에 MCP 서버 추가:
+Global registration (recommended — works from any directory):
+
+```bash
+claude mcp add claude-p2p /path/to/claude-p2p -s user
+```
+
+Or per-project via `.mcp.json`:
 
 ```json
 {
@@ -51,54 +57,59 @@ go build -o claude-p2p .
 }
 ```
 
-### 3. 실행
+### 3. Run
 
-Claude Code를 시작하면 `claude-p2p`가 자동으로 MCP 서버로 실행됩니다.
+Start Claude Code — `claude-p2p` launches automatically as an MCP server.
 
-## 로컬 네트워크 테스트 가이드
+## Local Network Testing Guide
 
-같은 머신에서 두 개의 Claude Code 세션으로 P2P 통신을 테스트할 수 있습니다.
+You can test P2P communication between two Claude Code sessions on the same machine.
 
-### 준비
+### Setup
 
 ```bash
-# 빌드
+# Build
 go build -o claude-p2p .
 
-# 바이너리 경로 확인
-BINARY=$(pwd)/claude-p2p
+# Register globally
+claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 ```
 
-### 방법 1: 두 개의 터미널에서 Claude Code 실행
+### Option 1: Two Claude Code Sessions
 
-**터미널 A** — 프로젝트 디렉토리에서:
+**Terminal A** — in any project directory:
 
 ```bash
-# .mcp.json이 있는 프로젝트에서 Claude Code 시작
 claude
 ```
 
-**터미널 B** — 다른 프로젝트 디렉토리에서:
+**Terminal B** — in a different directory:
 
 ```bash
-# 같은 .mcp.json 설정으로 Claude Code 시작
 claude
 ```
 
-두 세션 모두 claude-p2p가 MCP 서버로 시작되고, **같은 LAN이면 mDNS로 자동 발견**됩니다.
+Both sessions start with claude-p2p as an MCP server. On the same LAN, **peers are discovered automatically via mDNS**.
 
-### 방법 2: 수동 테스트 (MCP 프로토콜 직접)
+In either session, ask Claude:
 
-Claude Code 없이 MCP 프로토콜을 직접 테스트할 수 있습니다.
+```
+Show me connected peers
+```
 
-**터미널 A:**
+Claude calls `list_peers` and shows the other session.
+
+### Option 2: Manual MCP Testing
+
+Test the MCP protocol directly without Claude Code:
+
+**Terminal A:**
 
 ```bash
-# claude-p2p 실행 (stdin/stdout으로 MCP 통신)
 ./claude-p2p
 ```
 
-stderr에 다음과 같은 로그가 출력됩니다:
+You'll see logs on stderr:
 
 ```
 [claude-p2p] libp2p peer ID: 12D3KooW...
@@ -107,19 +118,19 @@ stderr에 다음과 같은 로그가 출력됩니다:
 [claude-p2p] DHT started
 ```
 
-**터미널 B:**
+**Terminal B:**
 
 ```bash
 ./claude-p2p
 ```
 
-몇 초 후 양쪽 모두에서:
+After a few seconds, both sides show:
 
 ```
 [claude-p2p] mDNS: discovered peer 12D3KooW...
 ```
 
-이제 stdin으로 MCP 명령을 보낼 수 있습니다:
+Send MCP commands via stdin:
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
@@ -133,122 +144,113 @@ stderr에 다음과 같은 로그가 출력됩니다:
 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_peers","arguments":{}}}
 ```
 
-### 방법 3: Go 테스트로 검증
+### Option 3: Go Tests
 
-통합 테스트가 포함되어 있습니다:
+Integration tests are included:
 
 ```bash
-# 전체 테스트 (42개, race detector 포함)
+# All tests (42, with race detector)
 go test ./... -race -v
 
-# 통합 테스트만
+# Integration tests only
 go test ./p2p/ -run TestIntegration -v
 
-# P2P 메시징 테스트
+# P2P messaging test
 go test ./p2p/ -run TestSendDirectMessage -v
 ```
 
-### 테스트 시나리오
+### Usage Examples
 
-두 Claude Code 세션이 연결된 후 사용할 수 있는 도구들:
+Once two Claude Code sessions are connected, use natural language:
 
 ```
-# 연결된 피어 확인
-list_peers
-
-# 피어에게 메시지 보내기
-send_message(peer_id="12D3KooW...", message="PR #42 리뷰 부탁합니다")
-
-# 토픽으로 브로드캐스트
-send_message(topic="my-team", message="main 브랜치에 푸시했습니다")
-
-# 받은 메시지 확인
-get_messages
-
-# 작업 요약 설정 (다른 피어에게 자동 공유)
-set_summary("auth 모듈 리팩토링 중")
-
-# 토픽 참여
-join_topic(topic="my-team")
+> "Show me connected peers"
+> "Send a message to the other session: please review PR #42"
+> "Broadcast to my-team topic: pushed to main"
+> "Check for new messages"
+> "Set my summary to: refactoring auth module"
+> "Join topic my-team"
 ```
 
-## MCP 도구
+Claude automatically calls the appropriate MCP tools.
 
-| 도구 | 설명 |
-|------|------|
-| `list_peers` | 연결된 피어 목록 (scope: local/topic/all) |
-| `send_message` | 직접 메시지 또는 토픽 브로드캐스트 |
-| `get_messages` | 받은 메시지 확인 (pop 또는 peek 모드) |
-| `set_summary` | 현재 작업 요약 설정 (피어에게 자동 공유) |
-| `join_topic` | 팀/프로젝트 토픽 참여 |
+## MCP Tools
 
-## 연결 방식
+| Tool | Description |
+|------|-------------|
+| `list_peers` | List connected peers (scope: local/topic/all) |
+| `send_message` | Send direct message or topic broadcast |
+| `get_messages` | Retrieve received messages (pop or peek mode) |
+| `set_summary` | Set work summary visible to peers |
+| `join_topic` | Join a team/project topic |
 
-### LAN (자동)
+## Connectivity
 
-같은 네트워크에 있으면 mDNS로 자동 발견됩니다. 설정 불필요.
+### LAN (Automatic)
 
-### 인터넷 (토픽 코드)
+Peers on the same network are discovered via mDNS. No configuration needed.
+
+### Internet (Topic Code)
 
 ```bash
-# 환경변수로 토픽 설정
+# Set topic via environment variable
 CLAUDE_P2P_TOPIC=my-team-abc claude
 
-# 또는 Claude Code에서 도구 호출
+# Or use the tool from within Claude Code
 join_topic(topic="my-team-abc")
 ```
 
-같은 토픽 코드를 사용하는 모든 피어가 DHT를 통해 연결됩니다.
+All peers using the same topic code connect via DHT rendezvous.
 
-## 크로스 플랫폼 빌드
+## Cross-Platform Builds
 
 ```bash
-# goreleaser 설치 (https://goreleaser.com/install/)
+# Install goreleaser (https://goreleaser.com/install/)
 # macOS:
 brew install goreleaser
 
-# 빌드 (macOS/Linux/Windows × amd64/arm64)
+# Build for all platforms (macOS/Linux/Windows x amd64/arm64)
 goreleaser build --snapshot --clean
 
-# 결과: dist/ 폴더에 6개 바이너리
+# Output: 6 binaries in dist/
 ```
 
-## 기술 스택
+## Tech Stack
 
-| 계층 | 기술 |
-|------|------|
-| 언어 | Go |
+| Layer | Technology |
+|-------|------------|
+| Language | Go |
 | P2P | [go-libp2p](https://github.com/libp2p/go-libp2p) |
-| 피어 발견 | mDNS (LAN) + Kademlia DHT (인터넷) |
-| 메시징 | libp2p streams (1:1) + GossipSub (브로드캐스트) |
-| 암호화 | Noise protocol |
-| NAT 통과 | 홀펀칭 + Circuit Relay v2 |
+| Discovery | mDNS (LAN) + Kademlia DHT (Internet) |
+| Messaging | libp2p streams (1:1) + GossipSub (broadcast) |
+| Encryption | Noise protocol |
+| NAT Traversal | Hole punching + Circuit Relay v2 |
 | MCP | JSON-RPC 2.0 over stdio |
-| 빌드 | goreleaser |
+| Build | goreleaser |
 
-## 프로젝트 구조
+## Project Structure
 
 ```
 claude-p2p/
-├── main.go                 # 진입점
+├── main.go                 # Entry point
 ├── mcp/
-│   ├── server.go           # MCP JSON-RPC 서버
-│   ├── types.go            # JSON-RPC + MCP 타입
-│   └── tools.go            # 도구 레지스트리
+│   ├── server.go           # MCP JSON-RPC server
+│   ├── types.go            # JSON-RPC + MCP type definitions
+│   └── tools.go            # Tool registry
 ├── node/
-│   └── node.go             # MCP 서버 + P2P 호스트 오케스트레이터
+│   └── node.go             # MCP server + P2P host orchestrator
 ├── p2p/
-│   ├── host.go             # libp2p 호스트 (NAT, 연결 관리)
-│   ├── discovery.go        # mDNS + DHT 피어 발견
-│   ├── topic.go            # 토픽 관리 + GossipSub
-│   ├── messaging.go        # 직접 메시징 (libp2p streams)
-│   ├── inbox.go            # 메시지 인박스 (FIFO 큐)
-│   ├── metadata.go         # 작업 컨텍스트 공유
-│   ├── peers.go            # 피어 추적기
-│   └── types.go            # P2P 타입
-└── .goreleaser.yaml        # 크로스 플랫폼 빌드 설정
+│   ├── host.go             # libp2p host (NAT, connection management)
+│   ├── discovery.go        # mDNS + DHT peer discovery
+│   ├── topic.go            # Topic management + GossipSub
+│   ├── messaging.go        # Direct messaging (libp2p streams)
+│   ├── inbox.go            # Message inbox (bounded FIFO queue)
+│   ├── metadata.go         # Work context sharing
+│   ├── peers.go            # Peer tracker
+│   └── types.go            # P2P types
+└── .goreleaser.yaml        # Cross-platform build config
 ```
 
-## 라이선스
+## License
 
 MIT
