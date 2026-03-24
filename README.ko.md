@@ -240,6 +240,10 @@ claude-p2p/
 └── .goreleaser.yaml        # 크로스 플랫폼 빌드 설정
 ```
 
+## Built with claude-forge
+
+이 프로젝트는 [claude-forge](https://github.com/imtemp-dev/claude-forge)를 사용하여 만들어졌습니다. claude-forge는 Claude Code를 위한 문서 우선 AI 개발 도구입니다. 모든 스펙, 구현, 리뷰, 테스트가 forge 적응형 루프를 통해 진행되었습니다.
+
 ## 라이선스
 
 MIT

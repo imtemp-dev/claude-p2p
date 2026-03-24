@@ -260,6 +260,10 @@ claude-p2p/
 └── .goreleaser.yaml        # Cross-platform build config
 ```
 
+## Built with claude-forge
+
+This project was built entirely using [claude-forge](https://github.com/imtemp-dev/claude-forge) — a document-first AI development toolkit for Claude Code. All specs, implementation, reviews, and tests were driven through the forge adaptive loop.
+
 ## License
 
 MIT

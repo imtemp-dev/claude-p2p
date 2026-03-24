@@ -209,6 +209,10 @@ claude-p2p/
 └── .goreleaser.yaml        # 跨平台构建配置
 ```
 
+## Built with claude-forge
+
+本项目完全使用 [claude-forge](https://github.com/imtemp-dev/claude-forge) 构建——一个面向 Claude Code 的文档优先 AI 开发工具。所有规格、实现、审查和测试均通过 forge 自适应循环驱动。
+
 ## 许可证
 
 MIT
