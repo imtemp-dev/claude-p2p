@@ -56,6 +56,16 @@ go build -o claude-p2p .
 claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 ```
 
+### 업데이트
+
+```bash
+cd /path/to/claude-p2p
+git pull
+go build -o claude-p2p .
+```
+
+다음 Claude Code 세션부터 업데이트된 바이너리가 사용됩니다. 재등록 불필요.
+
 ### 실행
 
 Claude Code를 시작하면 `claude-p2p`가 자동으로 MCP 서버로 실행됩니다.

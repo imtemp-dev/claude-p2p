@@ -56,6 +56,16 @@ go build -o claude-p2p .
 claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 ```
 
+### 更新
+
+```bash
+cd /path/to/claude-p2p
+git pull
+go build -o claude-p2p .
+```
+
+下次启动 Claude Code 时将使用更新后的二进制文件。无需重新注册。
+
 ### 运行
 
 启动 Claude Code — `claude-p2p` 将自动作为 MCP 服务器启动。

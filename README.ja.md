@@ -56,6 +56,16 @@ go build -o claude-p2p .
 claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 ```
 
+### アップデート
+
+```bash
+cd /path/to/claude-p2p
+git pull
+go build -o claude-p2p .
+```
+
+次の Claude Code セッションから更新されたバイナリが使用されます。再登録は不要です。
+
 ### 実行
 
 Claude Code を起動すると、`claude-p2p` が MCP サーバーとして自動的に起動します。
