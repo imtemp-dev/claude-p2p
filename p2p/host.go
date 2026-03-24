@@ -9,6 +9,7 @@ import (
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
@@ -102,9 +103,9 @@ func NewHost(ctx context.Context, logger *log.Logger) (*Host, error) {
 	metadataManager := NewMetadataManager(ctx, h, peerTracker, tm, logger)
 
 	// Route GossipSub messages: metadata to MetadataManager, others to inbox
-	tm.SetMessageHandler(func(topic string, msg Message) {
+	tm.SetMessageHandler(func(topic string, msg Message, from peer.ID) {
 		if topic == MetadataTopicName && msg.Type == "metadata" {
-			metadataManager.HandleMetadataMessage(msg)
+			metadataManager.HandleMetadataMessage(msg, from)
 		} else {
 			inbox.Push(InboxMessage{
 				Message:    msg,

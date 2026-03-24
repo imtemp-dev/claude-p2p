@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 )
@@ -36,7 +37,7 @@ type TopicManager struct {
 	pubsubSubs   map[string]*pubsub.Subscription
 	wg             sync.WaitGroup
 	seq            atomic.Uint64
-	messageHandler func(topic string, msg Message)
+	messageHandler func(topic string, msg Message, from peer.ID)
 	logger         *log.Logger
 }
 
@@ -150,8 +151,17 @@ func (tm *TopicManager) readSubscription(ctx context.Context, sub *pubsub.Subscr
 			tm.logger.Printf("GossipSub message unmarshal error on %s: %v", topic, err)
 			continue
 		}
-		if tm.messageHandler != nil {
-			tm.messageHandler(topic, m)
+		// MAJ-005: Drop oversized messages
+		if len(m.Content) > MaxMessageSize {
+			tm.logger.Printf("dropping oversized GossipSub message from %s (%d bytes)", msg.ReceivedFrom, len(m.Content))
+			continue
+		}
+		// MAJ-001: Read handler under lock to prevent race
+		tm.mu.RLock()
+		handler := tm.messageHandler
+		tm.mu.RUnlock()
+		if handler != nil {
+			handler(topic, m, msg.ReceivedFrom)
 		} else {
 			tm.inbox.Push(InboxMessage{
 				Message:    m,
@@ -163,7 +173,9 @@ func (tm *TopicManager) readSubscription(ctx context.Context, sub *pubsub.Subscr
 
 // SetMessageHandler sets a custom handler for GossipSub messages.
 // If set, messages are routed here instead of the inbox.
-func (tm *TopicManager) SetMessageHandler(handler func(topic string, msg Message)) {
+func (tm *TopicManager) SetMessageHandler(handler func(topic string, msg Message, from peer.ID)) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
 	tm.messageHandler = handler
 }
 
@@ -309,20 +321,34 @@ func (tm *TopicManager) Topics() []string {
 
 // Close cancels all topics and waits for background goroutines.
 func (tm *TopicManager) Close() error {
+	// Collect items under lock, then release before calling GossipSub (MAJ-004)
 	tm.mu.Lock()
-	for topic, cancel := range tm.topics {
-		cancel()
-		if sub, ok := tm.pubsubSubs[topic]; ok {
-			sub.Cancel()
-		}
-		if psTopic, ok := tm.pubsubTopics[topic]; ok {
-			psTopic.Close()
-		}
-		delete(tm.topics, topic)
-		delete(tm.pubsubSubs, topic)
-		delete(tm.pubsubTopics, topic)
+	cancels := make([]context.CancelFunc, 0, len(tm.topics))
+	subs := make([]*pubsub.Subscription, 0, len(tm.pubsubSubs))
+	psTopics := make([]*pubsub.Topic, 0, len(tm.pubsubTopics))
+	for _, cancel := range tm.topics {
+		cancels = append(cancels, cancel)
 	}
+	for _, sub := range tm.pubsubSubs {
+		subs = append(subs, sub)
+	}
+	for _, pst := range tm.pubsubTopics {
+		psTopics = append(psTopics, pst)
+	}
+	tm.topics = make(map[string]context.CancelFunc)
+	tm.pubsubSubs = make(map[string]*pubsub.Subscription)
+	tm.pubsubTopics = make(map[string]*pubsub.Topic)
 	tm.mu.Unlock()
+
+	for _, c := range cancels {
+		c()
+	}
+	for _, s := range subs {
+		s.Cancel()
+	}
+	for _, p := range psTopics {
+		p.Close()
+	}
 	tm.wg.Wait()
 	return nil
 }

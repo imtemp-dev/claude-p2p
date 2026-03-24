@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"net/url"
 	"os/exec"
 	"os/user"
 	"strings"
@@ -51,7 +52,7 @@ func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, 
 		username = u.Username
 	}
 
-	repo := detectGit("remote", "get-url", "origin")
+	repo := sanitizeRepoURL(detectGit("remote", "get-url", "origin"))
 	branch := detectGit("rev-parse", "--abbrev-ref", "HEAD")
 
 	broadcastCtx, cancel := context.WithCancel(ctx)
@@ -86,6 +87,19 @@ func detectGit(args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// sanitizeRepoURL strips credentials from a git remote URL.
+func sanitizeRepoURL(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.User == nil {
+		return raw
+	}
+	u.User = nil
+	return u.String()
+}
+
 // SetSummary updates the local work summary.
 func (mm *MetadataManager) SetSummary(summary string) {
 	mm.mu.Lock()
@@ -102,20 +116,15 @@ func (mm *MetadataManager) LocalMetadata() PeerMetadata {
 }
 
 // HandleMetadataMessage processes an incoming metadata broadcast from a remote peer.
-func (mm *MetadataManager) HandleMetadataMessage(msg Message) {
+// The `from` parameter is the authenticated peer ID from GossipSub transport (not the JSON payload).
+func (mm *MetadataManager) HandleMetadataMessage(msg Message, from peer.ID) {
 	var meta PeerMetadata
 	if err := json.Unmarshal([]byte(msg.Content), &meta); err != nil {
 		mm.logger.Printf("metadata unmarshal error: %v", err)
 		return
 	}
 
-	peerID, err := peer.Decode(msg.From)
-	if err != nil {
-		mm.logger.Printf("metadata invalid peer ID %q: %v", msg.From, err)
-		return
-	}
-
-	mm.peerTracker.SetMetadata(peerID, meta)
+	mm.peerTracker.SetMetadata(from, meta)
 }
 
 func (mm *MetadataManager) broadcastLoop(ctx context.Context) {

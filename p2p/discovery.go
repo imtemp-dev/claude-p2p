@@ -67,7 +67,7 @@ func (d *Discovery) StartMDNS(serviceName string) error {
 
 // StartDHT starts the Kademlia DHT, bootstraps, and creates routing discovery.
 func (d *Discovery) StartDHT(ctx context.Context) error {
-	kademliaDHT, err := dht.New(ctx, d.host, dht.Mode(dht.ModeAutoServer))
+	kademliaDHT, err := dht.New(ctx, d.host, dht.Mode(dht.ModeClient))
 	if err != nil {
 		return err
 	}

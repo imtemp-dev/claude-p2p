@@ -55,8 +55,6 @@ func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content stri
 	if err != nil {
 		return fmt.Errorf("open stream: %w", err)
 	}
-	defer stream.Close()
-
 	msg := Message{
 		ID:        GenerateMessageID(m.host.ID(), &m.seq),
 		From:      m.host.ID().String(),
@@ -80,6 +78,7 @@ func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content stri
 		return err
 	}
 	stream.CloseWrite()
+	stream.Close()
 	return nil
 }
 
@@ -99,6 +98,8 @@ func (m *Messenger) handleStream(s network.Stream) {
 		m.logger.Printf("message unmarshal error: %v", err)
 		return
 	}
+	// Override From with authenticated transport peer ID (CRT-001 fix)
+	msg.From = s.Conn().RemotePeer().String()
 	m.inbox.Push(InboxMessage{
 		Message:    msg,
 		ReceivedAt: time.Now().UTC().Format(time.RFC3339),
