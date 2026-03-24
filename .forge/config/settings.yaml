@@ -1,0 +1,79 @@
+# forge — Bulletproof Technical Specification
+# Project-level settings. Skills read this file at startup and use
+# these values instead of defaults. Delete a setting to use the default.
+
+# Verification
+verify:
+  max_iterations: 3              # After 3 cycles without level change, diminishing returns — ask user
+  convergence:
+    require_zero_critical: true
+    require_zero_major: true
+    allow_minor: true
+
+# Debate
+debate:
+  rounds: 3                      # 3 rounds: positions → rebuttals → synthesis (covers full argument cycle)
+  max_extensions: 3              # After 3 extensions, new information is unlikely — force decision
+  expert_count: 3                # 3 perspectives: enough diversity without diluting focus
+
+# Simulation
+simulate:
+  min_scenarios: 5               # Below 5, too easy to miss an important path
+
+# Implementation
+implement:
+  max_build_retries: 5           # 5 attempts: enough to try different approaches, not enough to spin
+  max_test_iterations: 5         # Same rationale — if 5 fix cycles don't resolve it, human help needed
+
+# Fix recipe
+fix:
+  debate_rounds: 1               # Known bugs need quick resolution, not extended deliberation
+  simulate_scenarios: 3          # Focused fix — fewer but targeted scenarios
+
+# Debug recipe
+debug:
+  debate_rounds: 1               # Quick analysis, not full debate
+  perspective_count: 6           # 6 lenses for root cause: data, deps, design, runtime, history, impact
+
+# Resume
+resume:
+  changelog_tail: 5              # Last 5 entries: enough context without reading full history
+
+# Context
+context:
+  clear_threshold: 80            # Leave 20% headroom for the response
+
+# Vision & Roadmap
+vision:
+  size_threshold: 15             # Above 15 files, a single recipe risks context overflow
+  max_roadmap_items: 8           # Beyond 8, the roadmap itself becomes hard to track
+  min_roadmap_items: 3           # Below 3, decomposition adds overhead without benefit
+
+# Agent models — override the model used for specialist agents.
+# Default: sonnet (set in agent frontmatter). Options: sonnet, opus, haiku.
+# Opus gives deeper analysis but costs more and is slower.
+# Haiku is fast and cheap but may miss subtle issues.
+agents:
+  verifier: sonnet
+  auditor: sonnet
+  simulator: sonnet
+  reviewer_quality: sonnet
+  reviewer_security: sonnet
+  reviewer_arch: sonnet
+
+# Skill effort levels — override the thinking depth for each skill.
+# Options: low, medium, high, max (max is Opus 4.6 only).
+# Higher effort = deeper reasoning but slower and more expensive.
+# Set in skill frontmatter by default; override here per-project.
+# effort:
+#   verify: max              # Deepest analysis — find logical flaws
+#   simulate: max            # Walk through every scenario thoroughly
+#   debate: high             # Multi-expert deliberation
+#   research: high           # Thorough investigation
+#   review: high             # Deep code review
+#   status: low              # Simple aggregation
+
+# Privacy
+privacy:
+  strip_private_tags: true
+  detect_secrets: true

@@ -1,0 +1,2 @@
+# forge state (per-session, not committed)
+.forge/state/
