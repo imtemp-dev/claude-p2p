@@ -1,2 +1,10 @@
 # forge state (per-session, not committed)
 .forge/state/
+
+# build artifacts
+claude-p2p
+dist/
+
+# npm wrapper downloaded binary
+npm/bin/claude-p2p
+npm/bin/claude-p2p.exe

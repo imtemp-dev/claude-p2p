@@ -1,0 +1,29 @@
+{
+  "name": "claude-p2p",
+  "version": "0.1.0",
+  "description": "P2P MCP server for direct communication between Claude Code instances",
+  "bin": {
+    "claude-p2p": "bin/cli.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "p2p",
+    "libp2p",
+    "peer-to-peer"
+  ],
+  "author": "imtemp-dev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imtemp-dev/claude-p2p.git"
+  },
+  "homepage": "https://github.com/imtemp-dev/claude-p2p",
+  "engines": {
+    "node": ">=16"
+  }
+}
