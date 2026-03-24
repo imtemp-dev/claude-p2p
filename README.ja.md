@@ -29,37 +29,34 @@ Claude Code インスタンス間の P2P 直接通信 MCP サーバー。
 └──────────────┘    NAT ホールパンチ    └──────────────┘
 ```
 
-## クイックスタート
+## インストール
 
-### 1. ビルド
+### 方法 A：go install（Go が必要）
 
 ```bash
-git clone https://github.com/jlim/claude-p2p.git
-cd claude-p2p
-go build -o claude-p2p .
+go install github.com/imtemp-dev/claude-p2p@latest
+claude mcp add claude-p2p $(go env GOPATH)/bin/claude-p2p -s user
 ```
 
-### 2. Claude Code に登録
+### 方法 B：バイナリをダウンロード
 
-グローバル登録（推奨 — 任意のディレクトリで動作）：
+[GitHub Releases](https://github.com/imtemp-dev/claude-p2p/releases) からダウンロード後：
 
 ```bash
+chmod +x claude-p2p
 claude mcp add claude-p2p /path/to/claude-p2p -s user
 ```
 
-またはプロジェクト別の `.mcp.json`：
+### 方法 C：ソースからビルド
 
-```json
-{
-  "mcpServers": {
-    "claude-p2p": {
-      "command": "/path/to/claude-p2p"
-    }
-  }
-}
+```bash
+git clone https://github.com/imtemp-dev/claude-p2p.git
+cd claude-p2p
+go build -o claude-p2p .
+claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 ```
 
-### 3. 実行
+### 実行
 
 Claude Code を起動すると、`claude-p2p` が MCP サーバーとして自動的に起動します。
 

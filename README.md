@@ -29,37 +29,34 @@ Developer A (Seoul)                    Developer B (US)
 └──────────────┘    NAT hole-punch    └──────────────┘
 ```
 
-## Quick Start
+## Installation
 
-### 1. Build
+### Option A: go install (requires Go)
 
 ```bash
-git clone https://github.com/jlim/claude-p2p.git
-cd claude-p2p
-go build -o claude-p2p .
+go install github.com/imtemp-dev/claude-p2p@latest
+claude mcp add claude-p2p $(go env GOPATH)/bin/claude-p2p -s user
 ```
 
-### 2. Register with Claude Code
+### Option B: Download binary
 
-Global registration (recommended — works from any directory):
+Download from [GitHub Releases](https://github.com/imtemp-dev/claude-p2p/releases), then:
 
 ```bash
+chmod +x claude-p2p
 claude mcp add claude-p2p /path/to/claude-p2p -s user
 ```
 
-Or per-project via `.mcp.json`:
+### Option C: Build from source
 
-```json
-{
-  "mcpServers": {
-    "claude-p2p": {
-      "command": "/path/to/claude-p2p"
-    }
-  }
-}
+```bash
+git clone https://github.com/imtemp-dev/claude-p2p.git
+cd claude-p2p
+go build -o claude-p2p .
+claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 ```
 
-### 3. Run
+### Run
 
 Start Claude Code — `claude-p2p` launches automatically as an MCP server.
 

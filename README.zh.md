@@ -29,37 +29,34 @@ Claude Code 实例间 P2P 直接通信 MCP 服务器。
 └──────────────┘    NAT 打洞           └──────────────┘
 ```
 
-## 快速开始
+## 安装
 
-### 1. 构建
+### 方法 A：go install（需要 Go）
 
 ```bash
-git clone https://github.com/jlim/claude-p2p.git
-cd claude-p2p
-go build -o claude-p2p .
+go install github.com/imtemp-dev/claude-p2p@latest
+claude mcp add claude-p2p $(go env GOPATH)/bin/claude-p2p -s user
 ```
 
-### 2. 注册到 Claude Code
+### 方法 B：下载二进制文件
 
-全局注册（推荐 — 在任何目录下都可使用）：
+从 [GitHub Releases](https://github.com/imtemp-dev/claude-p2p/releases) 下载后：
 
 ```bash
+chmod +x claude-p2p
 claude mcp add claude-p2p /path/to/claude-p2p -s user
 ```
 
-或通过项目级 `.mcp.json`：
+### 方法 C：从源码构建
 
-```json
-{
-  "mcpServers": {
-    "claude-p2p": {
-      "command": "/path/to/claude-p2p"
-    }
-  }
-}
+```bash
+git clone https://github.com/imtemp-dev/claude-p2p.git
+cd claude-p2p
+go build -o claude-p2p .
+claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 ```
 
-### 3. 运行
+### 运行
 
 启动 Claude Code — `claude-p2p` 将自动作为 MCP 服务器启动。
 
