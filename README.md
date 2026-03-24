@@ -2,6 +2,8 @@
 
 A peer-to-peer MCP server for direct communication between Claude Code instances.
 
+[한국어](README.ko.md) | [中文](README.zh.md) | [日本語](README.ja.md)
+
 Team members running separate Claude Code sessions can discover each other, exchange messages, and share work context in real-time — without any external infrastructure.
 
 ## Features
