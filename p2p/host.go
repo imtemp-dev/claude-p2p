@@ -54,7 +54,6 @@ func NewHost(ctx context.Context, logger *log.Logger) (*Host, error) {
 		libp2p.EnableAutoNATv2(),
 		libp2p.EnableHolePunching(),
 		libp2p.EnableRelayService(),
-		libp2p.EnableAutoRelay(),
 		libp2p.ConnectionManager(cm),
 	)
 	if err != nil {
