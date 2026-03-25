@@ -16,6 +16,7 @@ type Inbox struct {
 	mu       sync.Mutex
 	messages []InboxMessage
 	capacity int
+	onPush   func(msg InboxMessage) // called after each Push, outside lock
 }
 
 // NewInbox creates an inbox with the given capacity.
@@ -30,16 +31,31 @@ func NewInbox(capacity int) *Inbox {
 	}
 }
 
-// Push adds a message to the inbox. If at capacity, the oldest message is dropped.
-func (i *Inbox) Push(msg InboxMessage) {
+// SetOnPush sets a callback that is invoked after each Push, outside the lock.
+func (i *Inbox) SetOnPush(fn func(msg InboxMessage)) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	i.onPush = fn
+}
+
+// Push adds a message to the inbox. If at capacity, the oldest message is dropped.
+// The onPush callback (if set) is called outside the lock after the message is stored.
+func (i *Inbox) Push(msg InboxMessage) {
+	var callback func(InboxMessage)
+
+	i.mu.Lock()
 	if len(i.messages) >= i.capacity {
 		newMsgs := make([]InboxMessage, len(i.messages)-1, i.capacity)
 		copy(newMsgs, i.messages[1:])
 		i.messages = newMsgs
 	}
 	i.messages = append(i.messages, msg)
+	callback = i.onPush
+	i.mu.Unlock()
+
+	if callback != nil {
+		callback(msg)
+	}
 }
 
 // Pop returns all messages and clears the inbox. Returns nil if empty.

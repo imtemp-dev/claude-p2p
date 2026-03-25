@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -15,11 +17,17 @@ import (
 	"github.com/jlim/claude-p2p/p2p"
 )
 
+const (
+	getMessagesToolName    = "get_messages"
+	getMessagesDefaultDesc = "Get pending messages from inbox"
+)
+
 // Node orchestrates the MCP server and P2P host lifecycle.
 type Node struct {
 	mcpServer *mcp.Server
 	p2pHost   *p2p.Host
 	registry  *mcp.ToolRegistry
+	resources *mcp.ResourceRegistry
 	logger    *log.Logger
 }
 
@@ -42,18 +50,21 @@ func New(ctx context.Context) (*Node, error) {
 	}
 
 	registry := mcp.NewToolRegistry()
+	resources := mcp.NewResourceRegistry()
 	server := mcp.NewServer(
 		mcp.ServerInfo{Name: "claude-p2p", Version: "0.1.0"},
-		registry, os.Stdin, os.Stdout,
+		registry, resources, os.Stdin, os.Stdout,
 	)
 
 	n := &Node{
 		mcpServer: server,
 		p2pHost:   p2pHost,
 		registry:  registry,
+		resources: resources,
 		logger:    logger,
 	}
 	n.registerTools()
+	n.registerResources()
 	return n, nil
 }
 
@@ -131,8 +142,8 @@ func (n *Node) registerTools() {
 
 	// Real get_messages handler
 	n.registry.Register(mcp.Tool{
-		Name:        "get_messages",
-		Description: "Get pending messages from inbox",
+		Name:        getMessagesToolName,
+		Description: getMessagesDefaultDesc,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"peek":{"type":"boolean","description":"If true, don't clear inbox after reading","default":false}},"required":[]}`),
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint:    mcp.BoolPtr(false),
@@ -352,6 +363,28 @@ func (n *Node) handleGetMessages(_ context.Context, args json.RawMessage) (*mcp.
 		messages = n.p2pHost.Inbox().Peek()
 	} else {
 		messages = n.p2pHost.Inbox().Pop()
+		// Sync resource description after clearing inbox and notify client
+		if len(messages) > 0 {
+			n.syncInboxDescription(0, nil)
+			if n.mcpServer.IsInitialized() {
+				if n.mcpServer.IsSubscribed("p2p://inbox") {
+					if err := n.mcpServer.SendNotification("notifications/resources/updated",
+						mcp.ResourcesUpdatedParams{URI: "p2p://inbox"}); err != nil {
+						n.logger.Printf("send resources/updated notification: %v", err)
+					}
+				}
+				if err := n.mcpServer.SendNotification("notifications/resources/list_changed", nil); err != nil {
+					n.logger.Printf("send resources/list_changed notification: %v", err)
+				}
+			}
+			// Reset tool description to default
+			n.registry.UpdateDescription(getMessagesToolName, getMessagesDefaultDesc)
+			if n.mcpServer.IsInitialized() {
+				if err := n.mcpServer.SendNotification("notifications/tools/list_changed", nil); err != nil {
+					n.logger.Printf("send tools/list_changed notification: %v", err)
+				}
+			}
+		}
 	}
 
 	if messages == nil {
@@ -407,4 +440,138 @@ func (n *Node) handleSetSummary(_ context.Context, args json.RawMessage) (*mcp.T
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("Summary updated: %s", params.Summary)}},
 	}, nil
+}
+
+func (n *Node) registerResources() {
+	if n.p2pHost == nil {
+		return
+	}
+
+	n.resources.Register(mcp.Resource{
+		URI:         "p2p://inbox",
+		Name:        "P2P Inbox",
+		Description: "No unread messages",
+		MimeType:    "application/json",
+		Annotations: &mcp.ResourceAnnotations{
+			Audience: []string{"assistant"},
+			Priority: mcp.Float64Ptr(1.0),
+		},
+	}, n.readInboxResource)
+
+	n.p2pHost.Inbox().SetOnPush(n.onInboxPush)
+}
+
+func (n *Node) readInboxResource() (*mcp.ResourcesReadResult, error) {
+	messages := n.p2pHost.Inbox().Peek()
+
+	var latestMsg *p2p.InboxMessage
+	if len(messages) > 0 {
+		latestMsg = &messages[len(messages)-1]
+	}
+	n.syncInboxDescription(len(messages), latestMsg)
+
+	data, err := json.Marshal(struct {
+		Messages []p2p.InboxMessage `json:"messages"`
+		Count    int                `json:"count"`
+	}{
+		Messages: messages,
+		Count:    len(messages),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("serialize inbox: %w", err)
+	}
+
+	return &mcp.ResourcesReadResult{
+		Contents: []mcp.ResourceContents{{
+			URI:      "p2p://inbox",
+			MimeType: "application/json",
+			Text:     string(data),
+		}},
+	}, nil
+}
+
+func (n *Node) syncInboxDescription(count int, latestMsg *p2p.InboxMessage) {
+	var desc string
+	if count == 0 {
+		desc = "No unread messages"
+	} else if latestMsg != nil {
+		from := latestMsg.From
+		if len(from) > 12 {
+			from = from[:12] + "..."
+		}
+		desc = fmt.Sprintf("%d unread message(s), latest from %s", count, from)
+	} else {
+		desc = fmt.Sprintf("%d unread message(s)", count)
+	}
+	n.resources.UpdateDescription("p2p://inbox", desc, time.Now().UTC().Format(time.RFC3339))
+}
+
+func (n *Node) onInboxPush(msg p2p.InboxMessage) {
+	count := n.p2pHost.Inbox().Len()
+	n.syncInboxDescription(count, &msg)
+
+	// Tool description notification (real messages only)
+	if msg.Topic != "_meta" && msg.Type != "metadata" && count > 0 {
+		from := msg.From
+		if len(from) > 12 {
+			from = from[:12] + "..."
+		}
+		desc := fmt.Sprintf("⚠ %d unread message(s) (latest from %s). %s", count, from, getMessagesDefaultDesc)
+		n.registry.UpdateDescription(getMessagesToolName, desc)
+
+		if n.mcpServer.IsInitialized() {
+			if err := n.mcpServer.SendNotification("notifications/tools/list_changed", nil); err != nil {
+				n.logger.Printf("send tools/list_changed notification: %v", err)
+			}
+		}
+	}
+
+	if !n.mcpServer.IsInitialized() {
+		return
+	}
+
+	if count == 0 {
+		return
+	}
+
+	if n.mcpServer.IsSubscribed("p2p://inbox") {
+		if err := n.mcpServer.SendNotification("notifications/resources/updated",
+			mcp.ResourcesUpdatedParams{URI: "p2p://inbox"}); err != nil {
+			n.logger.Printf("send resources/updated notification: %v", err)
+		}
+	}
+
+	if err := n.mcpServer.SendNotification("notifications/resources/list_changed", nil); err != nil {
+		n.logger.Printf("send resources/list_changed notification: %v", err)
+	}
+
+	// OS desktop notification
+	n.sendDesktopNotification(msg)
+}
+
+func (n *Node) sendDesktopNotification(msg p2p.InboxMessage) {
+	// Skip metadata broadcasts — only notify for real messages
+	if msg.Topic == "_meta" || msg.Type == "metadata" {
+		return
+	}
+
+	from := msg.From
+	if len(from) > 12 {
+		from = from[:12] + "..."
+	}
+
+	title := fmt.Sprintf("claude-p2p: %s", from)
+	body := msg.Content
+	if len(body) > 100 {
+		body = body[:100] + "..."
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		go exec.Command("osascript", "-e",
+			fmt.Sprintf(`display notification %q with title %q`, body, title),
+		).Run()
+	case "linux":
+		go exec.Command("notify-send", title, body).Run()
+	}
 }

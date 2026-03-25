@@ -51,6 +51,19 @@ func (r *ToolRegistry) List() []Tool {
 	return tools
 }
 
+// UpdateDescription updates the description of a registered tool.
+// If the tool is not found, this is a no-op.
+func (r *ToolRegistry) UpdateDescription(name string, description string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	rt, ok := r.tools[name]
+	if !ok {
+		return
+	}
+	rt.definition.Description = description
+	r.tools[name] = rt
+}
+
 // Call looks up a tool by name and calls its handler.
 func (r *ToolRegistry) Call(ctx context.Context, name string, args json.RawMessage) (*ToolResult, error) {
 	r.mu.RLock()

@@ -127,3 +127,59 @@ func TestInboxEmptyPeek(t *testing.T) {
 		t.Errorf("expected empty peek, got %d", len(msgs))
 	}
 }
+
+func TestInboxOnPushCallback(t *testing.T) {
+	inbox := NewInbox(10)
+
+	var received []InboxMessage
+	var mu sync.Mutex
+	inbox.SetOnPush(func(msg InboxMessage) {
+		mu.Lock()
+		defer mu.Unlock()
+		received = append(received, msg)
+	})
+
+	inbox.Push(InboxMessage{
+		Message: Message{ID: "1", Content: "hello", From: "peer1"},
+	})
+	inbox.Push(InboxMessage{
+		Message: Message{ID: "2", Content: "world", From: "peer2"},
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != 2 {
+		t.Fatalf("expected 2 callbacks, got %d", len(received))
+	}
+	if received[0].Content != "hello" {
+		t.Errorf("first callback content = %q, want %q", received[0].Content, "hello")
+	}
+	if received[1].Content != "world" {
+		t.Errorf("second callback content = %q, want %q", received[1].Content, "world")
+	}
+}
+
+func TestInboxOnPushCallbackCanAccessInbox(t *testing.T) {
+	inbox := NewInbox(10)
+
+	var lenDuringCallback int
+	inbox.SetOnPush(func(msg InboxMessage) {
+		// Should not deadlock — callback is called outside the lock
+		lenDuringCallback = inbox.Len()
+	})
+
+	inbox.Push(InboxMessage{Message: Message{ID: "1"}})
+
+	if lenDuringCallback != 1 {
+		t.Errorf("Len() during callback = %d, want 1", lenDuringCallback)
+	}
+}
+
+func TestInboxNilOnPush(t *testing.T) {
+	inbox := NewInbox(10)
+	// Should not panic when no callback set
+	inbox.Push(InboxMessage{Message: Message{ID: "1"}})
+	if inbox.Len() != 1 {
+		t.Errorf("expected 1 message, got %d", inbox.Len())
+	}
+}

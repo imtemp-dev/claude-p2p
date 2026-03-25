@@ -8,7 +8,8 @@ const (
 	ErrCodeInvalidRequest = -32600
 	ErrCodeMethodNotFound = -32601
 	ErrCodeInvalidParams  = -32602
-	ErrCodeInternal       = -32603
+	ErrCodeInternal          = -32603
+	ErrCodeResourceNotFound  = -32002
 )
 
 // JSONRPCRequest is an incoming JSON-RPC 2.0 request (has id).
@@ -75,7 +76,14 @@ type InitializeResult struct {
 
 // ServerCapabilities describes server capabilities.
 type ServerCapabilities struct {
-	Tools *ToolsCapability `json:"tools,omitempty"`
+	Tools     *ToolsCapability     `json:"tools,omitempty"`
+	Resources *ResourcesCapability `json:"resources,omitempty"`
+}
+
+// ResourcesCapability describes the resources capability.
+type ResourcesCapability struct {
+	Subscribe   bool `json:"subscribe,omitempty"`
+	ListChanged bool `json:"listChanged,omitempty"`
 }
 
 // ToolsCapability describes the tools capability.
@@ -135,7 +143,66 @@ type ToolsListResult struct {
 	NextCursor string `json:"nextCursor,omitempty"`
 }
 
+// Resource is an MCP resource definition.
+type Resource struct {
+	URI         string               `json:"uri"`
+	Name        string               `json:"name"`
+	Description string               `json:"description,omitempty"`
+	MimeType    string               `json:"mimeType,omitempty"`
+	Annotations *ResourceAnnotations `json:"annotations,omitempty"`
+}
+
+// ResourceAnnotations provides hints about the resource.
+type ResourceAnnotations struct {
+	Audience     []string `json:"audience,omitempty"`
+	Priority     *float64 `json:"priority,omitempty"`
+	LastModified string   `json:"lastModified,omitempty"`
+}
+
+// ResourceContents is the content of a resource.
+type ResourceContents struct {
+	URI      string `json:"uri"`
+	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text,omitempty"`
+}
+
+// ResourcesListParams is the params for resources/list.
+type ResourcesListParams struct {
+	Cursor string `json:"cursor,omitempty"`
+}
+
+// ResourcesListResult is the result for resources/list.
+type ResourcesListResult struct {
+	Resources  []Resource `json:"resources"`
+	NextCursor string     `json:"nextCursor,omitempty"`
+}
+
+// ResourcesReadParams is the params for resources/read.
+type ResourcesReadParams struct {
+	URI string `json:"uri"`
+}
+
+// ResourcesReadResult is the result for resources/read.
+type ResourcesReadResult struct {
+	Contents []ResourceContents `json:"contents"`
+}
+
+// ResourcesSubscribeParams is the params for resources/subscribe and resources/unsubscribe.
+type ResourcesSubscribeParams struct {
+	URI string `json:"uri"`
+}
+
+// ResourcesUpdatedParams is the params for notifications/resources/updated.
+type ResourcesUpdatedParams struct {
+	URI string `json:"uri"`
+}
+
 // BoolPtr returns a pointer to a bool value.
 func BoolPtr(b bool) *bool {
 	return &b
+}
+
+// Float64Ptr returns a pointer to a float64 value.
+func Float64Ptr(f float64) *float64 {
+	return &f
 }

@@ -92,6 +92,29 @@ func TestToolRegistryCallHandlerError(t *testing.T) {
 	}
 }
 
+func TestToolRegistryUpdateDescription(t *testing.T) {
+	r := NewToolRegistry()
+	r.Register(Tool{
+		Name:        "test_tool",
+		Description: "original",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	}, func(_ context.Context, _ json.RawMessage) (*ToolResult, error) {
+		return nil, nil
+	})
+
+	r.UpdateDescription("test_tool", "updated description")
+	tools := r.List()
+	if tools[0].Description != "updated description" {
+		t.Errorf("description = %q, want %q", tools[0].Description, "updated description")
+	}
+}
+
+func TestToolRegistryUpdateDescriptionNotFound(t *testing.T) {
+	r := NewToolRegistry()
+	// Should not panic
+	r.UpdateDescription("nonexistent", "test")
+}
+
 func TestBoolPtr(t *testing.T) {
 	truePtr := BoolPtr(true)
 	falsePtr := BoolPtr(false)

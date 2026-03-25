@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"sync/atomic"
 )
 
 // Supported MCP protocol versions.
@@ -29,23 +30,28 @@ type Server struct {
 	mu               sync.Mutex
 	closeOnce        sync.Once
 	tools            *ToolRegistry
+	resources        *ResourceRegistry
 	initResponseSent bool
-	initialized      bool
+	initialized      atomic.Bool
 	serverInfo       ServerInfo
 	logger           *log.Logger
+	subscriptions    map[string]bool
+	subMu            sync.RWMutex
 }
 
 // NewServer creates a new MCP server with the given input/output streams.
-func NewServer(info ServerInfo, registry *ToolRegistry, input io.ReadCloser, output io.Writer) *Server {
+func NewServer(info ServerInfo, registry *ToolRegistry, resources *ResourceRegistry, input io.ReadCloser, output io.Writer) *Server {
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 	return &Server{
-		input:      input,
-		reader:     scanner,
-		writer:     json.NewEncoder(output),
-		tools:      registry,
-		serverInfo: info,
-		logger:     log.New(os.Stderr, "[claude-p2p] ", log.LstdFlags),
+		input:         input,
+		reader:        scanner,
+		writer:        json.NewEncoder(output),
+		tools:         registry,
+		resources:     resources,
+		serverInfo:    info,
+		logger:        log.New(os.Stderr, "[claude-p2p] ", log.LstdFlags),
+		subscriptions: make(map[string]bool),
 	}
 }
 
@@ -115,7 +121,7 @@ func (s *Server) handleMessage(ctx context.Context, data []byte) error {
 	}
 
 	// Request — check initialization state
-	if !s.initialized && method != "initialize" && method != "ping" {
+	if !s.initialized.Load() && method != "initialize" && method != "ping" {
 		return s.sendError(id, ErrCodeInvalidRequest, "Server not initialized")
 	}
 
@@ -131,6 +137,14 @@ func (s *Server) handleMessage(ctx context.Context, data []byte) error {
 		return s.handleToolsList(id, params)
 	case "tools/call":
 		return s.handleToolsCall(ctx, id, params)
+	case "resources/list":
+		return s.handleResourcesList(id, params)
+	case "resources/read":
+		return s.handleResourcesRead(id, params)
+	case "resources/subscribe":
+		return s.handleResourcesSubscribe(id, params)
+	case "resources/unsubscribe":
+		return s.handleResourcesUnsubscribe(id, params)
 	case "ping":
 		return s.handlePing(id)
 	default:
@@ -142,7 +156,7 @@ func (s *Server) handleNotification(method string) error {
 	switch method {
 	case "notifications/initialized":
 		if s.initResponseSent {
-			s.initialized = true
+			s.initialized.Store(true)
 		}
 	}
 	// Unknown notifications are silently ignored
@@ -151,9 +165,12 @@ func (s *Server) handleNotification(method string) error {
 
 func (s *Server) handleInitialize(id any, params json.RawMessage) error {
 	// Re-initialize: reset handshake state
-	if s.initialized {
-		s.initialized = false
+	if s.initialized.Load() {
+		s.initialized.Store(false)
 		s.initResponseSent = false
+		s.subMu.Lock()
+		s.subscriptions = make(map[string]bool)
+		s.subMu.Unlock()
 	}
 
 	var p InitializeParams
@@ -177,7 +194,8 @@ func (s *Server) handleInitialize(id any, params json.RawMessage) error {
 		Result: InitializeResult{
 			ProtocolVersion: version,
 			Capabilities: ServerCapabilities{
-				Tools: &ToolsCapability{ListChanged: true},
+				Tools:     &ToolsCapability{ListChanged: true},
+				Resources: &ResourcesCapability{Subscribe: true, ListChanged: true},
 			},
 			ServerInfo:   s.serverInfo,
 			Instructions: "P2P communication between Claude Code instances",
@@ -256,5 +274,136 @@ func (s *Server) sendError(id any, code int, message string) error {
 		JSONRPC: "2.0",
 		ID:      id,
 		Error:   &JSONRPCError{Code: code, Message: message},
+	})
+}
+
+// SendNotification sends a JSON-RPC 2.0 notification (no id) to the client.
+// Thread-safe — can be called from any goroutine.
+func (s *Server) SendNotification(method string, params any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var rawParams json.RawMessage
+	if params != nil {
+		var err error
+		rawParams, err = json.Marshal(params)
+		if err != nil {
+			return fmt.Errorf("marshal notification params: %w", err)
+		}
+	}
+
+	return s.writer.Encode(&JSONRPCNotification{
+		JSONRPC: "2.0",
+		Method:  method,
+		Params:  rawParams,
+	})
+}
+
+// IsInitialized returns whether the MCP handshake is complete.
+// Safe to call from any goroutine.
+func (s *Server) IsInitialized() bool {
+	return s.initialized.Load()
+}
+
+// IsSubscribed returns whether a URI has been subscribed to.
+func (s *Server) IsSubscribed(uri string) bool {
+	s.subMu.RLock()
+	defer s.subMu.RUnlock()
+	return s.subscriptions[uri]
+}
+
+func (s *Server) handleResourcesList(id any, params json.RawMessage) error {
+	return s.sendResponse(&JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Result:  ResourcesListResult{Resources: s.resources.List()},
+	})
+}
+
+func (s *Server) handleResourcesRead(id any, params json.RawMessage) error {
+	var p ResourcesReadParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return s.sendError(id, ErrCodeInvalidParams, "Invalid params: "+err.Error())
+		}
+	}
+
+	if p.URI == "" {
+		return s.sendError(id, ErrCodeInvalidParams, "Invalid params: uri is required")
+	}
+
+	// Call read handler with panic recovery
+	var result *ResourcesReadResult
+	var readErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				readErr = fmt.Errorf("resource read panic: %v", r)
+			}
+		}()
+		result, readErr = s.resources.Read(p.URI)
+	}()
+
+	if readErr != nil {
+		if errors.Is(readErr, ErrResourceNotFound) {
+			return s.sendError(id, ErrCodeResourceNotFound, "Resource not found: "+p.URI)
+		}
+		return s.sendError(id, ErrCodeInternal, readErr.Error())
+	}
+
+	return s.sendResponse(&JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Result:  result,
+	})
+}
+
+func (s *Server) handleResourcesSubscribe(id any, params json.RawMessage) error {
+	var p ResourcesSubscribeParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return s.sendError(id, ErrCodeInvalidParams, "Invalid params: "+err.Error())
+		}
+	}
+
+	if p.URI == "" {
+		return s.sendError(id, ErrCodeInvalidParams, "Invalid params: uri is required")
+	}
+
+	if !s.resources.Has(p.URI) {
+		return s.sendError(id, ErrCodeResourceNotFound, "Resource not found: "+p.URI)
+	}
+
+	s.subMu.Lock()
+	s.subscriptions[p.URI] = true
+	s.subMu.Unlock()
+
+	return s.sendResponse(&JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Result:  struct{}{},
+	})
+}
+
+func (s *Server) handleResourcesUnsubscribe(id any, params json.RawMessage) error {
+	var p ResourcesSubscribeParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return s.sendError(id, ErrCodeInvalidParams, "Invalid params: "+err.Error())
+		}
+	}
+
+	if p.URI == "" {
+		return s.sendError(id, ErrCodeInvalidParams, "Invalid params: uri is required")
+	}
+
+	s.subMu.Lock()
+	delete(s.subscriptions, p.URI)
+	s.subMu.Unlock()
+
+	return s.sendResponse(&JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      id,
+		Result:  struct{}{},
 	})
 }

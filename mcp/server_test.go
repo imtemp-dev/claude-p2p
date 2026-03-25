@@ -25,7 +25,7 @@ func newTestServer(input string) (*Server, *bytes.Buffer) {
 			Content: []ContentItem{{Type: "text", Text: "test result"}},
 		}, nil
 	})
-	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, registry, in, out)
+	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, registry, NewResourceRegistry(), in, out)
 	return server, out
 }
 
@@ -401,7 +401,7 @@ func TestContextCancel(t *testing.T) {
 	pr, pw := io.Pipe()
 	out := &bytes.Buffer{}
 	registry := NewToolRegistry()
-	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, registry, pr, out)
+	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, registry, NewResourceRegistry(), pr, out)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -515,7 +515,7 @@ func TestToolHandlerPanic(t *testing.T) {
 	}, func(_ context.Context, _ json.RawMessage) (*ToolResult, error) {
 		panic("intentional panic")
 	})
-	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, registry, in, out)
+	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, registry, NewResourceRegistry(), in, out)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -637,7 +637,7 @@ func TestToolHandlerErrorAtServerLevel(t *testing.T) {
 	}, func(_ context.Context, _ json.RawMessage) (*ToolResult, error) {
 		return nil, errors.New("handler failed")
 	})
-	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, registry, in, out)
+	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, registry, NewResourceRegistry(), in, out)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -693,5 +693,418 @@ func TestNullID(t *testing.T) {
 	// id should be null in response
 	if resp["id"] != nil {
 		t.Errorf("response id should be null, got %v", resp["id"])
+	}
+}
+
+// helper: create an initialized server with resources
+func newResourceTestServer(input string) (*Server, *bytes.Buffer, *ResourceRegistry) {
+	initPrefix := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+`
+	in := io.NopCloser(strings.NewReader(initPrefix + input))
+	out := &bytes.Buffer{}
+	registry := NewToolRegistry()
+	resources := NewResourceRegistry()
+	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, registry, resources, in, out)
+	return server, out, resources
+}
+
+// Scenario 1: Resource list returns inbox resource
+func TestResourcesList(t *testing.T) {
+	server, out, resources := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/list"}
+`)
+	resources.Register(Resource{URI: "p2p://inbox", Name: "P2P Inbox", MimeType: "application/json"}, func() (*ResourcesReadResult, error) {
+		return &ResourcesReadResult{Contents: []ResourceContents{{URI: "p2p://inbox", Text: `{}`}}}, nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	// responses[0] = initialize, responses[1] = resources/list
+	var listResp map[string]any
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && id == 10 {
+			listResp = r
+			break
+		}
+	}
+	if listResp == nil {
+		t.Fatal("no response for resources/list (id=10)")
+	}
+	result, _ := listResp["result"].(map[string]any)
+	resList, _ := result["resources"].([]any)
+	if len(resList) != 1 {
+		t.Fatalf("expected 1 resource, got %d", len(resList))
+	}
+	res, _ := resList[0].(map[string]any)
+	if res["uri"] != "p2p://inbox" {
+		t.Errorf("URI = %v, want p2p://inbox", res["uri"])
+	}
+}
+
+// Scenario 2: Resource read returns inbox contents
+func TestResourcesRead(t *testing.T) {
+	server, out, resources := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/read","params":{"uri":"p2p://inbox"}}
+`)
+	resources.Register(Resource{URI: "p2p://inbox", Name: "P2P Inbox"}, func() (*ResourcesReadResult, error) {
+		return &ResourcesReadResult{Contents: []ResourceContents{{URI: "p2p://inbox", MimeType: "application/json", Text: `{"messages":[],"count":0}`}}}, nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	var readResp map[string]any
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && id == 10 {
+			readResp = r
+			break
+		}
+	}
+	if readResp == nil {
+		t.Fatal("no response for resources/read")
+	}
+	result, _ := readResp["result"].(map[string]any)
+	contents, _ := result["contents"].([]any)
+	if len(contents) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(contents))
+	}
+}
+
+// Scenario 6: Read unknown resource URI
+func TestResourcesReadUnknown(t *testing.T) {
+	server, out, _ := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/read","params":{"uri":"p2p://unknown"}}
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	var readResp map[string]any
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && id == 10 {
+			readResp = r
+			break
+		}
+	}
+	if readResp == nil {
+		t.Fatal("no response for resources/read")
+	}
+	errObj, _ := readResp["error"].(map[string]any)
+	if errObj == nil {
+		t.Fatal("expected error response for unknown resource")
+	}
+	code, _ := errObj["code"].(float64)
+	if int(code) != ErrCodeResourceNotFound {
+		t.Errorf("error code = %v, want %d", code, ErrCodeResourceNotFound)
+	}
+}
+
+// Scenario 7: Subscribe to unknown resource
+func TestResourcesSubscribeUnknown(t *testing.T) {
+	server, out, _ := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/subscribe","params":{"uri":"p2p://unknown"}}
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	var resp map[string]any
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && id == 10 {
+			resp = r
+			break
+		}
+	}
+	if resp == nil {
+		t.Fatal("no response")
+	}
+	errObj, _ := resp["error"].(map[string]any)
+	if errObj == nil {
+		t.Fatal("expected error for unknown subscribe")
+	}
+	code, _ := errObj["code"].(float64)
+	if int(code) != ErrCodeResourceNotFound {
+		t.Errorf("error code = %v, want %d", code, ErrCodeResourceNotFound)
+	}
+}
+
+// Scenario 8: Read with empty URI
+func TestResourcesReadEmptyURI(t *testing.T) {
+	server, out, _ := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/read","params":{"uri":""}}
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	var resp map[string]any
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && id == 10 {
+			resp = r
+			break
+		}
+	}
+	if resp == nil {
+		t.Fatal("no response")
+	}
+	errObj, _ := resp["error"].(map[string]any)
+	if errObj == nil {
+		t.Fatal("expected error for empty URI")
+	}
+	code, _ := errObj["code"].(float64)
+	if int(code) != ErrCodeInvalidParams {
+		t.Errorf("error code = %v, want %d", code, ErrCodeInvalidParams)
+	}
+}
+
+// Scenario 13: Resource requests before initialization rejected
+func TestResourcesBeforeInit(t *testing.T) {
+	in := io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"resources/list"}
+`))
+	out := &bytes.Buffer{}
+	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, NewToolRegistry(), NewResourceRegistry(), in, out)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	if len(responses) != 1 {
+		t.Fatalf("expected 1 response, got %d", len(responses))
+	}
+	errObj, _ := responses[0]["error"].(map[string]any)
+	if errObj == nil {
+		t.Fatal("expected error for pre-init request")
+	}
+}
+
+// Test SendNotification
+func TestSendNotification(t *testing.T) {
+	in := io.NopCloser(strings.NewReader(""))
+	out := &bytes.Buffer{}
+	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, NewToolRegistry(), NewResourceRegistry(), in, out)
+
+	err := server.SendNotification("notifications/resources/list_changed", nil)
+	if err != nil {
+		t.Fatalf("SendNotification failed: %v", err)
+	}
+
+	var notif map[string]any
+	if err := json.NewDecoder(out).Decode(&notif); err != nil {
+		t.Fatalf("decode notification: %v", err)
+	}
+	if notif["method"] != "notifications/resources/list_changed" {
+		t.Errorf("method = %v, want notifications/resources/list_changed", notif["method"])
+	}
+	if _, hasID := notif["id"]; hasID {
+		t.Error("notification should not have id field")
+	}
+}
+
+// Test SendNotification with params
+func TestSendNotificationWithParams(t *testing.T) {
+	in := io.NopCloser(strings.NewReader(""))
+	out := &bytes.Buffer{}
+	server := NewServer(ServerInfo{Name: "test", Version: "0.1.0"}, NewToolRegistry(), NewResourceRegistry(), in, out)
+
+	err := server.SendNotification("notifications/resources/updated", ResourcesUpdatedParams{URI: "p2p://inbox"})
+	if err != nil {
+		t.Fatalf("SendNotification failed: %v", err)
+	}
+
+	var notif map[string]any
+	if err := json.NewDecoder(out).Decode(&notif); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	params, _ := notif["params"].(map[string]any)
+	if params["uri"] != "p2p://inbox" {
+		t.Errorf("params.uri = %v, want p2p://inbox", params["uri"])
+	}
+}
+
+// Test IsSubscribed / subscribe / unsubscribe
+func TestSubscribeUnsubscribe(t *testing.T) {
+	server, out, resources := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/subscribe","params":{"uri":"p2p://inbox"}}
+{"jsonrpc":"2.0","id":11,"method":"resources/unsubscribe","params":{"uri":"p2p://inbox"}}
+`)
+	resources.Register(Resource{URI: "p2p://inbox", Name: "Inbox"}, func() (*ResourcesReadResult, error) { return nil, nil })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	// After subscribe, IsSubscribed should be true
+	// After unsubscribe, IsSubscribed should be false
+	// Both should have succeeded (no error in response)
+	responses := parseResponses(t, out)
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && (id == 10 || id == 11) {
+			if r["error"] != nil {
+				t.Errorf("response %v had error: %v", id, r["error"])
+			}
+		}
+	}
+
+	// After both operations, should not be subscribed
+	if server.IsSubscribed("p2p://inbox") {
+		t.Error("expected not subscribed after unsubscribe")
+	}
+}
+
+// Scenario: Read handler panic recovery
+func TestResourcesReadPanicRecovery(t *testing.T) {
+	server, out, resources := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/read","params":{"uri":"p2p://panic"}}
+`)
+	resources.Register(Resource{URI: "p2p://panic", Name: "Panic"}, func() (*ResourcesReadResult, error) {
+		panic("test panic in handler")
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	var resp map[string]any
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && id == 10 {
+			resp = r
+			break
+		}
+	}
+	if resp == nil {
+		t.Fatal("no response")
+	}
+	errObj, _ := resp["error"].(map[string]any)
+	if errObj == nil {
+		t.Fatal("expected error response for panicking handler")
+	}
+	code, _ := errObj["code"].(float64)
+	if int(code) != ErrCodeInternal {
+		t.Errorf("error code = %v, want %d", code, ErrCodeInternal)
+	}
+}
+
+// Scenario: Subscribe with empty URI
+func TestResourcesSubscribeEmptyURI(t *testing.T) {
+	server, out, _ := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/subscribe","params":{"uri":""}}
+`)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	var resp map[string]any
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && id == 10 {
+			resp = r
+			break
+		}
+	}
+	if resp == nil {
+		t.Fatal("no response")
+	}
+	errObj, _ := resp["error"].(map[string]any)
+	if errObj == nil {
+		t.Fatal("expected error for empty URI subscribe")
+	}
+	code, _ := errObj["code"].(float64)
+	if int(code) != ErrCodeInvalidParams {
+		t.Errorf("error code = %v, want %d", code, ErrCodeInvalidParams)
+	}
+}
+
+// Scenario: Unsubscribe with empty URI
+func TestResourcesUnsubscribeEmptyURI(t *testing.T) {
+	server, out, _ := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/unsubscribe","params":{"uri":""}}
+`)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	var resp map[string]any
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && id == 10 {
+			resp = r
+			break
+		}
+	}
+	if resp == nil {
+		t.Fatal("no response")
+	}
+	errObj, _ := resp["error"].(map[string]any)
+	if errObj == nil {
+		t.Fatal("expected error for empty URI unsubscribe")
+	}
+}
+
+// Scenario: Empty resource list
+func TestResourcesListEmpty(t *testing.T) {
+	server, out, _ := newResourceTestServer(
+		`{"jsonrpc":"2.0","id":10,"method":"resources/list"}
+`)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	var resp map[string]any
+	for _, r := range responses {
+		if id, ok := r["id"].(float64); ok && id == 10 {
+			resp = r
+			break
+		}
+	}
+	if resp == nil {
+		t.Fatal("no response")
+	}
+	result, _ := resp["result"].(map[string]any)
+	resList, _ := result["resources"].([]any)
+	if len(resList) != 0 {
+		t.Errorf("expected 0 resources, got %d", len(resList))
+	}
+}
+
+// Test Initialize includes resources capability
+func TestInitializeIncludesResourcesCapability(t *testing.T) {
+	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}
+`
+	server, out := newTestServer(input)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	server.Run(ctx)
+
+	responses := parseResponses(t, out)
+	if len(responses) == 0 {
+		t.Fatal("no response")
+	}
+	result, _ := responses[0]["result"].(map[string]any)
+	caps, _ := result["capabilities"].(map[string]any)
+	resCap, _ := caps["resources"].(map[string]any)
+	if resCap == nil {
+		t.Fatal("expected resources capability in init response")
+	}
+	if sub, ok := resCap["subscribe"].(bool); !ok || !sub {
+		t.Error("expected resources.subscribe = true")
+	}
+	if lc, ok := resCap["listChanged"].(bool); !ok || !lc {
+		t.Error("expected resources.listChanged = true")
 	}
 }
