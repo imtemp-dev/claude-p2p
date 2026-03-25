@@ -53,6 +53,9 @@ Assess the document and decide the next action.
    **If completeness is uncertain** → recommend `/audit`
    "Review for missing error cases, edge cases, security."
 
+   **If mermaid diagrams are missing or incomplete** → recommend IMPROVE
+   "Add state machine and flow diagrams with all execution paths enumerated."
+
    **If Level 3 criteria all met** → recommend `/sync-check` then finalize
    "Document appears complete. Run sync-check before finalizing."
 

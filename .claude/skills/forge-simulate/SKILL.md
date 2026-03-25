@@ -52,6 +52,12 @@ Read each implemented code file completely. Build a mental model of:
 
 ### Step 3: Design Scenarios
 
+**Mermaid-guided scenario design**: If final.md/fix-spec.md contains mermaid
+diagrams (state machines, flowcharts), read them first:
+- Every edge in the state diagram should be covered by at least 1 scenario
+- Every error/recovery path should have a dedicated scenario
+- Flag uncovered edges as missing scenarios before proceeding
+
 Design at least `simulate.min_scenarios` (default: 5) scenarios from the spec.
 Cover the full risk surface — think about what could go wrong, what could be
 misused, and what happens at boundaries. Typical concerns include normal flow,
@@ -99,6 +105,16 @@ Log:
 forge recipe log {id} --action simulate --result "N scenarios, N gaps (N critical)"
 ```
 
+### Step 5.5: Flow Comparison (if spec has mermaid)
+
+If the spec contains mermaid diagrams, generate a mermaid diagram of the
+ACTUAL code flow and compare:
+- Edge in spec but not in code → **GAP** (missing implementation)
+- Edge in code but not in spec → **DEVIATION** (undocumented behavior)
+- State in spec but unreachable in code → **GAP** (dead code or missing trigger)
+
+Include the comparison in the simulation report.
+
 ### After Code Simulation
 
 The implement/fix flow should:
@@ -117,7 +133,12 @@ Run scenarios against the spec to find what's missing or wrong.
 
 1. Read the target document fully.
 
-2. Design at least `simulate.min_scenarios` (default: 5) scenarios.
+2. **Mermaid-guided scenario design**: If the document contains mermaid diagrams,
+   read all state machines and flowcharts first. Use them to ensure every edge
+   and every state transition is covered by at least one scenario. Flag uncovered
+   edges before designing additional scenarios.
+
+3. Design at least `simulate.min_scenarios` (default: 5) scenarios.
    Cover the full risk surface for this specific document — think about what could
    go wrong, what could be misused, what happens at boundaries, and what breaks
    under load. Adapt the scenario categories to what matters for this spec rather

@@ -63,7 +63,7 @@ DocumentEntry optional fields:
 
 ```json
 {
-  "id": "r-1710720000000",
+  "id": "r-001-oauth-auth",
   "type": "blueprint",
   "topic": "OAuth2 authentication",
   "phase": "verify",
@@ -78,7 +78,7 @@ Required fields:
 - `id` (string): unique recipe identifier
 - `type` (string): "analyze", "design", "blueprint", "fix", or "debug"
 - `topic` (string): what the recipe is about
-- `phase` (string): current phase — "scoping", "research", "draft", "assess", "improve", "verify", "debate", "simulate", "audit", "finalize", "cancelled", "implement", "test", "review", "sync", "status", "complete"
+- `phase` (string): current phase — "discovery", "scoping", "research", "wireframe", "draft", "assess", "improve", "verify", "debate", "simulate", "audit", "finalize", "cancelled", "implement", "test", "review", "sync", "status", "complete"
 - `iteration` (number): current verify iteration count
 - `level` (number): assessed document level 0.0-3.0
 - `started_at` (string): ISO 8601 timestamp

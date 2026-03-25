@@ -63,7 +63,9 @@ if the code warrants different emphasis (e.g., performance-critical code may
 need a performance perspective instead of or in addition to security):
 
 1. **Agent(reviewer-quality)**: Code quality — correctness, error handling,
-   resource management, maintainability
+   resource management, maintainability.
+   If the spec (final.md) contains mermaid flow diagrams, compare the code's
+   actual control flow against the spec's expected flow. Flag deviations.
 
 2. **Agent(reviewer-security)**: Security — input validation, authentication,
    data protection, common vulnerability patterns

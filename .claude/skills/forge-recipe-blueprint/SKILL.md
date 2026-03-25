@@ -45,11 +45,16 @@ If active, check the phase to determine resume strategy:
    re-present if Status is DRAFT, or skip to adaptive loop if CONFIRMED.
 5. If scope.md does not exist → go to Scoping Loop step 1 (start scoping with roadmap context).
 
+**If phase is `wireframe`:** Read `wireframe.md` if it exists.
+- If incomplete → continue wireframe design
+- If complete (all quality gate checks pass) → transition to draft
+
 **If phase is any other (research, draft, verify, debate, etc.):** Resume with **minimum reads**:
 1. `changelog.jsonl` — last 5 entries only (determine current position in the loop)
 2. `draft.md` — the current draft (if not found, check `manifest.json` `current_draft` for legacy path)
-3. `verification.md` — latest verification findings
-4. `scope.md` — confirm scope is still valid
+3. `wireframe.md` — structural reference for draft alignment
+4. `verification.md` — latest verification findings
+5. `scope.md` — confirm scope is still valid
 
 Do NOT read on resume: research documents (already incorporated into the draft).
 
@@ -68,9 +73,12 @@ ASSESS determines what to do next based on the document's current state.
 ### Loop Protocol
 
 **At recipe start (MANDATORY):**
-1. Create `recipe.json` following the schema in forge-schema rules
-2. Create `manifest.json` following the schema in forge-schema rules
-3. Run `forge validate` to confirm both files are schema-compliant
+1. Check `forge recipe status`. If no active recipe exists:
+   ```bash
+   forge recipe create --type blueprint --topic "$ARGUMENTS"
+   ```
+   This creates `recipe.json` and `manifest.json` automatically and outputs the recipe ID.
+2. Run `forge validate` to confirm schema compliance
 
 **ALWAYS after modifying any JSON file in .forge/:**
 1. Run `forge validate` to verify schema compliance. Fix any errors before continuing.
@@ -278,13 +286,15 @@ or a fundamental shift in approach. Judge by intent, not by keywords.
 **Starting from scratch (no existing code):**
 1. /research — investigate technology, best practices, libraries.
    Research is scoped by `.forge/state/recipes/{id}/scope.md`.
-2. Write initial draft (Level 1) → **Draft Self-Check** → draft.md → /verify
-3. /assess → loop begins
+2. /forge-wireframe — design high-level structure (component diagram, state machine, data flow, file structure, all execution paths). This creates `wireframe.md`.
+3. Write initial draft (Level 1) referencing wireframe.md → **Draft Self-Check** → draft.md → /verify
+4. /assess → loop begins
 
 **Starting with existing code:**
 1. /research — explore existing codebase, scoped by scope.md constraints.
-2. Write initial draft referencing existing code → **Draft Self-Check** → draft.md → /verify
-3. /assess → loop begins
+2. /forge-wireframe — design structure changes (what to add/modify, state transitions, data flow changes).
+3. Write initial draft referencing wireframe.md → **Draft Self-Check** → draft.md → /verify
+4. /assess → loop begins
 
 ### Draft Self-Check (before /verify)
 
@@ -306,6 +316,13 @@ Cross-section consistency:
 - [ ] **No contradictions**: Error handling strategy is the same across all sections
 - [ ] **Naming consistent**: Same concept uses same name everywhere
 - [ ] **Config matches usage**: Config fields defined match how they're accessed in code
+
+Mermaid flow coverage:
+- [ ] **State machine**: All system states and transitions are in a `stateDiagram-v2`
+- [ ] **No dead ends**: Every state has at least one exit transition
+- [ ] **Error paths**: Every error state has recovery or terminal path
+- [ ] **All paths enumerated**: Draft lists ALL execution paths with triggers and expected behavior
+- [ ] **Wireframe alignment**: Component structure matches `wireframe.md`
 
 If any check fails → fix it in the draft before saving. This is proofreading,
 not verification (which requires a separate context).

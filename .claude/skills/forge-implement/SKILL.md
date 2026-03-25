@@ -19,6 +19,10 @@ Use settings values if present, otherwise use defaults noted in each step.
 
 ## Prerequisites
 
+0. **Resolve recipe ID**: If `$ARGUMENTS` is empty or not a recipe ID,
+   run `forge recipe status` to find the active recipe. Use its ID for
+   all `{id}` references below. If no active recipe → "No active recipe. Run /recipe blueprint first."
+
 1. Verify final.md exists:
    ```bash
    ls .forge/state/recipes/{id}/final.md
@@ -37,10 +41,18 @@ Use settings values if present, otherwise use defaults noted in each step.
    ```
    - If phase is "finalize" → fresh start, go to Step 1
    - If phase is "implement" → resume from tasks.json (Step 3)
-   - If phase is "test" → skip to Step 5 (test)
-   - If phase is "review" → skip to Step 5.5 (review)
-   - If phase is "sync" → skip to Step 6
-   - If phase is "status" → skip to Step 7
+   - If phase is "test" → smart resume based on artifacts:
+     - test-results.json (pass) + simulations/ exists + review.md exists → Step 6 (sync)
+     - test-results.json (pass) + simulations/ exists → Step 5.5 (review)
+     - test-results.json (pass) → Step 5.3 (simulate)
+     - otherwise → Step 5 (test)
+   - If phase is "review" → check review.md:
+     - review.md exists → Step 6 (sync)
+     - otherwise → Step 5.5 (review)
+   - If phase is "sync" → Step 6
+   - If phase is "status" → check completion requirements:
+     - tasks done + test-results pass + review.md + deviation.md → skip to Completion
+     - otherwise → Step 7
 
 4. **Load design context**:
    - Read scope.md for tech stack constraints and assumptions

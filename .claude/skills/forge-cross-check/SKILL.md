@@ -32,6 +32,11 @@ Check the document for internal contradictions and inconsistencies.
    Look for any place where one section says something that contradicts or
    is incompatible with another section.
 
+   If the document contains mermaid diagrams, verify that:
+   - State/node names in diagrams match the terms used in text
+   - Data flow directions in diagrams match the described behavior
+   - Interfaces shown as edges match the function signatures in text
+
 3. Classify findings:
    - critical: Same entity described differently in incompatible ways
    - major: Inconsistent naming or interface that would cause implementation errors
