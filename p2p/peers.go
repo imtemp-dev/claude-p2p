@@ -113,12 +113,14 @@ func (pt *PeerTracker) AddPending(id peer.ID, source string) {
 }
 
 // Peers returns a snapshot of all connected peers, sorted by ID.
+// Performs lazy cleanup of stale (disconnected) peers.
 func (pt *PeerTracker) Peers() []TrackedPeer {
-	pt.mu.RLock()
-	defer pt.mu.RUnlock()
+	pt.mu.Lock() // Write lock: cleanup may modify map
+	defer pt.mu.Unlock()
 	if pt.closed {
 		return nil
 	}
+	pt.cleanupStale()
 	result := make([]TrackedPeer, 0, len(pt.peers))
 	for _, p := range pt.peers {
 		tp := *p
@@ -144,13 +146,25 @@ func (pt *PeerTracker) PeersBySource(source string) []TrackedPeer {
 }
 
 // Count returns the number of connected peers. Returns 0 after Close.
+// Performs lazy cleanup of stale peers.
 func (pt *PeerTracker) Count() int {
-	pt.mu.RLock()
-	defer pt.mu.RUnlock()
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
 	if pt.closed {
 		return 0
 	}
+	pt.cleanupStale()
 	return len(pt.peers)
+}
+
+// cleanupStale removes disconnected peers from the map. Must be called under write lock.
+func (pt *PeerTracker) cleanupStale() {
+	for id := range pt.peers {
+		if pt.host.Network().Connectedness(id) != network.Connected {
+			pt.removeFromNameIndex(id)
+			delete(pt.peers, id)
+		}
+	}
 }
 
 // SetMetadata stores metadata for a connected peer. No-op if peer not found.
