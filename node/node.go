@@ -549,18 +549,21 @@ func (n *Node) onInboxPush(msg p2p.InboxMessage) {
 		return
 	}
 
-	if n.mcpServer.IsSubscribed("p2p://inbox") {
-		if err := n.mcpServer.SendNotification("notifications/resources/updated",
-			mcp.ResourcesUpdatedParams{URI: "p2p://inbox"}); err != nil {
-			n.logger.Printf("send resources/updated notification: %v", err)
+	// Resource notifications — also skip _meta to avoid flooding every 60s
+	if msg.Topic != "_meta" && msg.Type != "metadata" {
+		if n.mcpServer.IsSubscribed("p2p://inbox") {
+			if err := n.mcpServer.SendNotification("notifications/resources/updated",
+				mcp.ResourcesUpdatedParams{URI: "p2p://inbox"}); err != nil {
+				n.logger.Printf("send resources/updated notification: %v", err)
+			}
+		}
+
+		if err := n.mcpServer.SendNotification("notifications/resources/list_changed", nil); err != nil {
+			n.logger.Printf("send resources/list_changed notification: %v", err)
 		}
 	}
 
-	if err := n.mcpServer.SendNotification("notifications/resources/list_changed", nil); err != nil {
-		n.logger.Printf("send resources/list_changed notification: %v", err)
-	}
-
-	// OS desktop notification
+	// OS desktop notification (has its own _meta filter inside)
 	n.sendDesktopNotification(msg)
 }
 
