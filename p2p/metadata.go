@@ -84,7 +84,7 @@ func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, 
 	repo := truncateField(sanitizeRepoURL(detectGit("remote", "get-url", "origin")), MaxRepoLength)
 	branch := truncateField(detectGit("rev-parse", "--abbrev-ref", "HEAD"), MaxBranchLength)
 
-	// Generate display name
+	// Generate or load display name
 	dir, err := os.Getwd()
 	if err != nil {
 		dir = "unknown"
@@ -92,7 +92,7 @@ func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, 
 	dirBase := filepath.Base(dir)
 	displayName := os.Getenv("CLAUDE_P2P_NAME")
 	if displayName == "" {
-		displayName = GenerateDisplayName(dirBase)
+		displayName = loadOrGenerateDisplayName(dirBase)
 	} else {
 		displayName = sanitizeDisplayName(displayName)
 	}

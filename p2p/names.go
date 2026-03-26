@@ -2,6 +2,8 @@ package p2p
 
 import (
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -50,6 +52,30 @@ func sanitizeDir(dir string) string {
 		return "session"
 	}
 	return s
+}
+
+// loadOrGenerateDisplayName loads a saved name from ~/.claude-p2p/name,
+// or generates a new one and saves it.
+func loadOrGenerateDisplayName(dir string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return GenerateDisplayName(dir)
+	}
+	nameFile := filepath.Join(home, ".claude-p2p", "name")
+	data, err := os.ReadFile(nameFile)
+	if err == nil {
+		name := strings.TrimSpace(string(data))
+		if name != "" {
+			return name
+		}
+	}
+
+	name := GenerateDisplayName(dir)
+	dirPath := filepath.Join(home, ".claude-p2p")
+	if mkErr := os.MkdirAll(dirPath, 0700); mkErr == nil {
+		os.WriteFile(nameFile, []byte(name), 0600)
+	}
+	return name
 }
 
 // sanitizeDisplayName cleans a user-provided display name.

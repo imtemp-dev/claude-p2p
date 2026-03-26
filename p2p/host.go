@@ -2,12 +2,16 @@ package p2p
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
@@ -36,6 +40,49 @@ type Host struct {
 	logger          *log.Logger
 }
 
+// identityDir returns the directory for persistent identity files.
+func identityDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude-p2p")
+}
+
+// loadOrCreateIdentity loads a persistent Ed25519 key from disk, or creates one.
+func loadOrCreateIdentity(logger *log.Logger) crypto.PrivKey {
+	dir := identityDir()
+	if dir == "" {
+		logger.Println("cannot determine home dir, using ephemeral identity")
+		key, _, _ := crypto.GenerateEd25519Key(rand.Reader)
+		return key
+	}
+
+	keyPath := filepath.Join(dir, "identity.key")
+	data, err := os.ReadFile(keyPath)
+	if err == nil {
+		key, err := crypto.UnmarshalPrivateKey(data)
+		if err == nil {
+			return key
+		}
+		logger.Printf("corrupt identity key, regenerating: %v", err)
+	}
+
+	// Generate new key and save
+	key, _, err := crypto.GenerateEd25519Key(rand.Reader)
+	if err != nil {
+		logger.Printf("key generation failed: %v", err)
+		return nil
+	}
+	raw, err := crypto.MarshalPrivateKey(key)
+	if err == nil {
+		if mkErr := os.MkdirAll(dir, 0700); mkErr == nil {
+			os.WriteFile(keyPath, raw, 0600)
+		}
+	}
+	return key
+}
+
 // NewHost creates a libp2p host with all subsystems.
 func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() time.Time) (*Host, error) {
 	cm, err := connmgr.NewConnManager(ConnLowWatermark, ConnHighWatermark,
@@ -44,7 +91,7 @@ func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() tim
 		return nil, fmt.Errorf("connection manager: %w", err)
 	}
 
-	h, err := libp2p.New(
+	opts := []libp2p.Option{
 		libp2p.ListenAddrStrings(
 			"/ip4/0.0.0.0/tcp/0",
 			"/ip4/0.0.0.0/udp/0/quic-v1",
@@ -56,7 +103,11 @@ func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() tim
 		libp2p.EnableHolePunching(),
 		libp2p.EnableRelayService(),
 		libp2p.ConnectionManager(cm),
-	)
+	}
+	if key := loadOrCreateIdentity(logger); key != nil {
+		opts = append(opts, libp2p.Identity(key))
+	}
+	h, err := libp2p.New(opts...)
 	if err != nil {
 		return nil, err
 	}
