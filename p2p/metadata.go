@@ -21,6 +21,12 @@ const (
 
 	// MetadataBroadcastInterval is how often to re-broadcast metadata.
 	MetadataBroadcastInterval = 60 * time.Second
+
+	// Field length limits for metadata validation.
+	MaxSummaryLength  = 500
+	MaxUsernameLength = 100
+	MaxRepoLength     = 500
+	MaxBranchLength   = 200
 )
 
 // PeerMetadata holds work context information about a peer.
@@ -31,6 +37,14 @@ type PeerMetadata struct {
 	Repo      string `json:"repo"`
 	Branch    string `json:"branch"`
 	UpdatedAt string `json:"updated_at"`
+}
+
+// truncateField truncates a string to maxLen bytes if it exceeds the limit.
+func truncateField(s string, maxLen int) string {
+	if len(s) > maxLen {
+		return s[:maxLen]
+	}
+	return s
 }
 
 // MetadataManager manages local metadata and broadcasts it to peers.
@@ -52,8 +66,8 @@ func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, 
 		username = u.Username
 	}
 
-	repo := sanitizeRepoURL(detectGit("remote", "get-url", "origin"))
-	branch := detectGit("rev-parse", "--abbrev-ref", "HEAD")
+	repo := truncateField(sanitizeRepoURL(detectGit("remote", "get-url", "origin")), MaxRepoLength)
+	branch := truncateField(detectGit("rev-parse", "--abbrev-ref", "HEAD"), MaxBranchLength)
 
 	broadcastCtx, cancel := context.WithCancel(ctx)
 
@@ -103,7 +117,7 @@ func sanitizeRepoURL(raw string) string {
 // SetSummary updates the local work summary.
 func (mm *MetadataManager) SetSummary(summary string) {
 	mm.mu.Lock()
-	mm.local.Summary = summary
+	mm.local.Summary = truncateField(summary, MaxSummaryLength)
 	mm.local.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	mm.mu.Unlock()
 }
@@ -123,6 +137,11 @@ func (mm *MetadataManager) HandleMetadataMessage(msg Message, from peer.ID) {
 		mm.logger.Printf("metadata unmarshal error: %v", err)
 		return
 	}
+
+	meta.Summary = truncateField(meta.Summary, MaxSummaryLength)
+	meta.Username = truncateField(meta.Username, MaxUsernameLength)
+	meta.Repo = truncateField(meta.Repo, MaxRepoLength)
+	meta.Branch = truncateField(meta.Branch, MaxBranchLength)
 
 	mm.peerTracker.SetMetadata(from, meta)
 }

@@ -61,7 +61,11 @@ claude mcp add claude-p2p /path/to/claude-p2p -s user
 
 ### 3. 运行
 
-启动 Claude Code — `claude-p2p` 将自动作为 MCP 服务器启动。
+使用 development channels 标志启动 Claude Code：
+
+```bash
+claude --dangerously-load-development-channels server:claude-p2p
+```
 
 ## 局域网测试指南
 
@@ -82,13 +86,13 @@ claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 **终端 A** — 在任意项目目录：
 
 ```bash
-claude
+claude --dangerously-load-development-channels server:claude-p2p
 ```
 
 **终端 B** — 在不同目录：
 
 ```bash
-claude
+claude --dangerously-load-development-channels server:claude-p2p
 ```
 
 两个会话都以 claude-p2p 作为 MCP 服务器启动。在同一局域网中，**通过 mDNS 自动发现**。
@@ -148,7 +152,7 @@ Claude 会自动调用相应的 MCP 工具。
 
 ```bash
 # 通过环境变量设置主题
-CLAUDE_P2P_TOPIC=my-team-abc claude
+CLAUDE_P2P_TOPIC=my-team-abc claude --dangerously-load-development-channels server:claude-p2p
 
 # 或在 Claude Code 中调用工具
 join_topic(topic="my-team-abc")

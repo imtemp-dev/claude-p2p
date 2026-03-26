@@ -132,6 +132,40 @@ func NewHost(ctx context.Context, logger *log.Logger) (*Host, error) {
 	}, nil
 }
 
+// NewHostForTest creates a minimal Host with loopback networking for testing.
+// No mDNS, DHT, or GossipSub — only PeerTracker, Inbox, Messenger, and TopicManager.
+func NewHostForTest(ctx context.Context, logger *log.Logger) (*Host, error) {
+	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"))
+	if err != nil {
+		return nil, fmt.Errorf("create libp2p host: %w", err)
+	}
+
+	tracker, err := NewPeerTracker(h, logger)
+	if err != nil {
+		h.Close()
+		return nil, fmt.Errorf("create peer tracker: %w", err)
+	}
+	tracker.Start(ctx)
+
+	inbox := NewInbox(DefaultInboxCapacity)
+	disc := NewDiscovery(h, tracker, logger)
+	tm := NewTopicManager(ctx, h, disc, tracker, inbox, logger)
+	messenger := NewMessenger(h, inbox, logger)
+
+	mm := NewMetadataManager(ctx, h, tracker, tm, logger)
+
+	return &Host{
+		host:            h,
+		discovery:       disc,
+		topicManager:    tm,
+		peerTracker:     tracker,
+		messenger:       messenger,
+		metadataManager: mm,
+		inbox:           inbox,
+		logger:          logger,
+	}, nil
+}
+
 // ID returns the peer ID as a string.
 func (h *Host) ID() string {
 	return h.host.ID().String()

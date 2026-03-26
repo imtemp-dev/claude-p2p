@@ -21,7 +21,44 @@ const (
 	FindPeersInterval = 30 * time.Second
 	MaxTopicLength    = 128
 	MaxTopics         = 10
+
+	// BroadcastRateLimit is the maximum sustained broadcast rate per topic (messages/sec).
+	BroadcastRateLimit = 10
+	// BroadcastBurstLimit is the maximum burst size for broadcasts per topic.
+	BroadcastBurstLimit = 20
 )
+
+// rateBucket implements a simple token bucket rate limiter.
+type rateBucket struct {
+	tokens     float64
+	maxTokens  float64
+	refillRate float64 // tokens per second
+	lastRefill time.Time
+}
+
+func newRateBucket(rate, burst float64) *rateBucket {
+	return &rateBucket{
+		tokens:     burst,
+		maxTokens:  burst,
+		refillRate: rate,
+		lastRefill: time.Now(),
+	}
+}
+
+func (rb *rateBucket) allow() bool {
+	now := time.Now()
+	elapsed := now.Sub(rb.lastRefill).Seconds()
+	rb.tokens += elapsed * rb.refillRate
+	if rb.tokens > rb.maxTokens {
+		rb.tokens = rb.maxTokens
+	}
+	rb.lastRefill = now
+	if rb.tokens >= 1 {
+		rb.tokens--
+		return true
+	}
+	return false
+}
 
 // TopicManager manages topic-based peer grouping via DHT rendezvous and GossipSub.
 type TopicManager struct {
@@ -38,6 +75,8 @@ type TopicManager struct {
 	wg             sync.WaitGroup
 	seq            atomic.Uint64
 	messageHandler func(topic string, msg Message, from peer.ID)
+	rateMu         sync.Mutex
+	rateBuckets    map[string]*rateBucket
 	logger         *log.Logger
 }
 
@@ -52,6 +91,7 @@ func NewTopicManager(ctx context.Context, h host.Host, disc *Discovery, tracker 
 		topics:       make(map[string]context.CancelFunc),
 		pubsubTopics: make(map[string]*pubsub.Topic),
 		pubsubSubs:   make(map[string]*pubsub.Subscription),
+		rateBuckets:  make(map[string]*rateBucket),
 		logger:       logger,
 	}
 }
@@ -237,6 +277,19 @@ func (tm *TopicManager) Broadcast(ctx context.Context, topic string, content str
 		return fmt.Errorf("GossipSub not available")
 	}
 
+	// Rate limit check
+	tm.rateMu.Lock()
+	bucket, ok := tm.rateBuckets[topic]
+	if !ok {
+		bucket = newRateBucket(BroadcastRateLimit, BroadcastBurstLimit)
+		tm.rateBuckets[topic] = bucket
+	}
+	allowed := bucket.allow()
+	tm.rateMu.Unlock()
+	if !allowed {
+		return fmt.Errorf("broadcast rate limit exceeded for topic %q (max %d/sec)", topic, BroadcastRateLimit)
+	}
+
 	tm.mu.RLock()
 	psTopic, ok := tm.pubsubTopics[topic]
 	tm.mu.RUnlock()
@@ -255,6 +308,9 @@ func (tm *TopicManager) Broadcast(ctx context.Context, topic string, content str
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
+	}
+	if len(data) > MaxMessageSize {
+		return fmt.Errorf("broadcast message too large (%d bytes, max %d)", len(data), MaxMessageSize)
 	}
 	return psTopic.Publish(ctx, data)
 }

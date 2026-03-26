@@ -61,7 +61,11 @@ Or per-project via `.mcp.json`:
 
 ### 3. Run
 
-Start Claude Code — `claude-p2p` launches automatically as an MCP server.
+Start Claude Code with the development channels flag:
+
+```bash
+claude --dangerously-load-development-channels server:claude-p2p
+```
 
 ## Local Network Testing Guide
 
@@ -82,13 +86,13 @@ claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 **Terminal A** — in any project directory:
 
 ```bash
-claude
+claude --dangerously-load-development-channels server:claude-p2p
 ```
 
 **Terminal B** — in a different directory:
 
 ```bash
-claude
+claude --dangerously-load-development-channels server:claude-p2p
 ```
 
 Both sessions start with claude-p2p as an MCP server. On the same LAN, **peers are discovered automatically via mDNS**.
@@ -196,7 +200,7 @@ Peers on the same network are discovered via mDNS. No configuration needed.
 
 ```bash
 # Set topic via environment variable
-CLAUDE_P2P_TOPIC=my-team-abc claude
+CLAUDE_P2P_TOPIC=my-team-abc claude --dangerously-load-development-channels server:claude-p2p
 
 # Or use the tool from within Claude Code
 join_topic(topic="my-team-abc")

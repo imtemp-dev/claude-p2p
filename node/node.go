@@ -68,6 +68,22 @@ func New(ctx context.Context) (*Node, error) {
 	return n, nil
 }
 
+// NewForTest creates a Node with injected dependencies for testing.
+func NewForTest(mcpServer *mcp.Server, p2pHost *p2p.Host, logger *log.Logger) *Node {
+	registry := mcp.NewToolRegistry()
+	resources := mcp.NewResourceRegistry()
+	n := &Node{
+		mcpServer: mcpServer,
+		p2pHost:   p2pHost,
+		registry:  registry,
+		resources: resources,
+		logger:    logger,
+	}
+	n.registerTools()
+	n.registerResources()
+	return n
+}
+
 // Run starts the MCP server. It blocks until stdin EOF or ctx cancel.
 func (n *Node) Run(ctx context.Context) error {
 	if n.p2pHost != nil {
@@ -247,6 +263,13 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 	if params.Message == "" {
 		return &mcp.ToolResult{
 			Content: []mcp.ContentItem{{Type: "text", Text: "message is required"}},
+			IsError: true,
+		}, nil
+	}
+
+	if len(params.Message) > p2p.MaxMessageSize {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("message too large (%d bytes, max %d)", len(params.Message), p2p.MaxMessageSize)}},
 			IsError: true,
 		}, nil
 	}

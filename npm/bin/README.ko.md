@@ -61,7 +61,11 @@ claude mcp add claude-p2p /path/to/claude-p2p -s user
 
 ### 3. 실행
 
-Claude Code를 시작하면 `claude-p2p`가 자동으로 MCP 서버로 실행됩니다.
+Development channels 플래그를 사용하여 Claude Code를 시작합니다:
+
+```bash
+claude --dangerously-load-development-channels server:claude-p2p
+```
 
 ## 로컬 네트워크 테스트 가이드
 
@@ -82,13 +86,13 @@ claude mcp add claude-p2p $(pwd)/claude-p2p -s user
 **터미널 A** — 아무 프로젝트 디렉토리에서:
 
 ```bash
-claude
+claude --dangerously-load-development-channels server:claude-p2p
 ```
 
 **터미널 B** — 다른 디렉토리에서:
 
 ```bash
-claude
+claude --dangerously-load-development-channels server:claude-p2p
 ```
 
 두 세션 모두 claude-p2p가 MCP 서버로 시작되고, 같은 LAN이면 **mDNS로 자동 발견**됩니다.
@@ -179,7 +183,7 @@ Claude가 자동으로 적절한 MCP 도구를 호출합니다.
 
 ```bash
 # 환경변수로 토픽 설정
-CLAUDE_P2P_TOPIC=my-team-abc claude
+CLAUDE_P2P_TOPIC=my-team-abc claude --dangerously-load-development-channels server:claude-p2p
 
 # 또는 Claude Code에서 도구 호출
 join_topic(topic="my-team-abc")
