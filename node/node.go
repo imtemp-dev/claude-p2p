@@ -567,17 +567,20 @@ func (n *Node) onInboxPush(msg p2p.InboxMessage) {
 			}
 
 			// Channel notification — pushes message directly into Claude's context
-			meta := map[string]string{
-				"from":       msg.From,
-				"type":       msg.Type,
-				"message_id": msg.ID,
-			}
-			if msg.Topic != "" {
-				meta["topic"] = msg.Topic
-			}
-			if err := n.mcpServer.SendNotification("notifications/claude/channel",
-				mcp.ChannelNotificationParams{Content: msg.Content, Meta: meta}); err != nil {
-				n.logger.Printf("send channel notification: %v", err)
+			// Skip in lazy mode: let Claude poll via get_messages instead
+			if os.Getenv("CLAUDE_P2P_MODE") != "lazy" {
+				meta := map[string]string{
+					"from":       msg.From,
+					"type":       msg.Type,
+					"message_id": msg.ID,
+				}
+				if msg.Topic != "" {
+					meta["topic"] = msg.Topic
+				}
+				if err := n.mcpServer.SendNotification("notifications/claude/channel",
+					mcp.ChannelNotificationParams{Content: msg.Content, Meta: meta}); err != nil {
+					n.logger.Printf("send channel notification: %v", err)
+				}
 			}
 		}
 	}
