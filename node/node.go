@@ -36,7 +36,15 @@ type Node struct {
 func New(ctx context.Context) (*Node, error) {
 	logger := log.New(os.Stderr, "[claude-p2p] ", log.LstdFlags)
 
-	p2pHost, err := p2p.NewHost(ctx, logger)
+	// Create MCP server first (P2P host needs its LastToolCallTime callback)
+	registry := mcp.NewToolRegistry()
+	resources := mcp.NewResourceRegistry()
+	server := mcp.NewServer(
+		mcp.ServerInfo{Name: "claude-p2p", Version: "0.1.0"},
+		registry, resources, os.Stdin, os.Stdout,
+	)
+
+	p2pHost, err := p2p.NewHost(ctx, logger, server.LastToolCallTime)
 	if err != nil {
 		logger.Printf("P2P host failed: %v. Running without P2P.", err)
 	}
@@ -49,13 +57,6 @@ func New(ctx context.Context) (*Node, error) {
 			logger.Printf("auto-joined topic: %s", topic)
 		}
 	}
-
-	registry := mcp.NewToolRegistry()
-	resources := mcp.NewResourceRegistry()
-	server := mcp.NewServer(
-		mcp.ServerInfo{Name: "claude-p2p", Version: "0.1.0"},
-		registry, resources, os.Stdin, os.Stdout,
-	)
 
 	n := &Node{
 		mcpServer: server,
@@ -126,7 +127,7 @@ func (n *Node) registerTools() {
 	n.registry.Register(mcp.Tool{
 		Name:        "send_message",
 		Description: "Send a message to a specific peer or broadcast to a topic",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"peer_id":{"type":"string","description":"Target peer ID or display name (for direct message)"},"message":{"type":"string","description":"Message content"},"topic":{"type":"string","description":"Topic to broadcast to (alternative to peer_id)"}},"required":["message"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"peer_id":{"type":"string","description":"Target peer ID or display name (for direct message)"},"message":{"type":"string","description":"Message content"},"topic":{"type":"string","description":"Topic to broadcast to (alternative to peer_id)"},"reply_to":{"type":"string","description":"Message ID to reply to (for conversation threading)"}},"required":["message"]}`),
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint:    mcp.BoolPtr(false),
 			DestructiveHint: mcp.BoolPtr(false),
@@ -215,6 +216,8 @@ func (n *Node) handleListPeers(_ context.Context, args json.RawMessage) (*mcp.To
 		}
 		if tp.Metadata != nil {
 			pi.DisplayName = tp.Metadata.DisplayName
+			pi.Status = tp.Metadata.Status
+			pi.IdleSince = tp.Metadata.IdleSince
 			pi.Summary = tp.Metadata.Summary
 			pi.Username = tp.Metadata.Username
 			pi.Repo = tp.Metadata.Repo
@@ -252,6 +255,7 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		PeerID  string `json:"peer_id"`
 		Message string `json:"message"`
 		Topic   string `json:"topic"`
+		ReplyTo string `json:"reply_to"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &params); err != nil {
@@ -292,7 +296,7 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 
 	// Broadcast path
 	if params.Topic != "" {
-		if err := n.p2pHost.TopicManager().Broadcast(ctx, params.Topic, params.Message); err != nil {
+		if err := n.p2pHost.TopicManager().Broadcast(ctx, params.Topic, params.Message, params.ReplyTo); err != nil {
 			return &mcp.ToolResult{
 				Content: []mcp.ContentItem{{Type: "text", Text: err.Error()}},
 				IsError: true,
@@ -328,7 +332,7 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		}
 	}
 
-	if err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message); err != nil {
+	if err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message, params.ReplyTo); err != nil {
 		return &mcp.ToolResult{
 			Content: []mcp.ContentItem{{Type: "text", Text: err.Error()}},
 			IsError: true,
@@ -576,6 +580,9 @@ func (n *Node) onInboxPush(msg p2p.InboxMessage) {
 				}
 				if msg.Topic != "" {
 					meta["topic"] = msg.Topic
+				}
+				if msg.ReplyTo != "" {
+					meta["reply_to"] = msg.ReplyTo
 				}
 				if err := n.mcpServer.SendNotification("notifications/claude/channel",
 					mcp.ChannelNotificationParams{Content: msg.Content, Meta: meta}); err != nil {

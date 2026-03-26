@@ -31,6 +31,7 @@ type Message struct {
 	Content   string `json:"content"`
 	Type      string `json:"type"`
 	Topic     string `json:"topic,omitempty"`
+	ReplyTo   string `json:"reply_to,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -50,7 +51,7 @@ func NewMessenger(h host.Host, inbox *Inbox, logger *log.Logger) *Messenger {
 }
 
 // SendDirect sends a direct message to a specific peer.
-func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string) error {
+func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string) error {
 	stream, err := m.host.NewStream(ctx, peerID, protocol.ID(ProtocolID))
 	if err != nil {
 		return fmt.Errorf("open stream: %w", err)
@@ -61,6 +62,7 @@ func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content stri
 		To:        peerID.String(),
 		Content:   content,
 		Type:      "direct",
+		ReplyTo:   replyTo,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 	data, err := json.Marshal(msg)

@@ -37,7 +37,7 @@ type Host struct {
 }
 
 // NewHost creates a libp2p host with all subsystems.
-func NewHost(ctx context.Context, logger *log.Logger) (*Host, error) {
+func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() time.Time) (*Host, error) {
 	cm, err := connmgr.NewConnManager(ConnLowWatermark, ConnHighWatermark,
 		connmgr.WithGracePeriod(ConnGracePeriod))
 	if err != nil {
@@ -100,11 +100,11 @@ func NewHost(ctx context.Context, logger *log.Logger) (*Host, error) {
 	}
 
 	// Create MetadataManager
-	metadataManager := NewMetadataManager(ctx, h, peerTracker, tm, logger)
+	metadataManager := NewMetadataManager(ctx, h, peerTracker, tm, logger, getLastToolCall)
 
 	// Route GossipSub messages: metadata to MetadataManager, others to inbox
 	tm.SetMessageHandler(func(topic string, msg Message, from peer.ID) {
-		if topic == MetadataTopicName && msg.Type == "metadata" {
+		if topic == MetadataTopicName {
 			metadataManager.HandleMetadataMessage(msg, from)
 		} else {
 			inbox.Push(InboxMessage{
@@ -152,7 +152,7 @@ func NewHostForTest(ctx context.Context, logger *log.Logger) (*Host, error) {
 	tm := NewTopicManager(ctx, h, disc, tracker, inbox, logger)
 	messenger := NewMessenger(h, inbox, logger)
 
-	mm := NewMetadataManager(ctx, h, tracker, tm, logger)
+	mm := NewMetadataManager(ctx, h, tracker, tm, logger, func() time.Time { return time.Now() })
 
 	return &Host{
 		host:            h,

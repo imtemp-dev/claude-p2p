@@ -12,6 +12,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // Supported MCP protocol versions.
@@ -37,6 +38,7 @@ type Server struct {
 	logger           *log.Logger
 	subscriptions    map[string]bool
 	subMu            sync.RWMutex
+	lastToolCall     atomic.Int64
 }
 
 // NewServer creates a new MCP server with the given input/output streams.
@@ -217,6 +219,7 @@ func (s *Server) handleToolsList(id any, _ json.RawMessage) error {
 }
 
 func (s *Server) handleToolsCall(ctx context.Context, id any, params json.RawMessage) error {
+	s.lastToolCall.Store(time.Now().Unix())
 	var p ToolCallParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -308,6 +311,16 @@ func (s *Server) SendNotification(method string, params any) error {
 // Safe to call from any goroutine.
 func (s *Server) IsInitialized() bool {
 	return s.initialized.Load()
+}
+
+// LastToolCallTime returns the time of the last tool call.
+// Returns zero time if no tool call has been made.
+func (s *Server) LastToolCallTime() time.Time {
+	ts := s.lastToolCall.Load()
+	if ts == 0 {
+		return time.Time{}
+	}
+	return time.Unix(ts, 0)
 }
 
 // IsSubscribed returns whether a URI has been subscribed to.

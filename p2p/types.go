@@ -4,6 +4,8 @@ package p2p
 type PeerInfo struct {
 	ID          string   `json:"id"`
 	DisplayName string   `json:"display_name,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	IdleSince   string   `json:"idle_since,omitempty"`
 	Addrs       []string `json:"addrs"`
 	ConnectedAt string   `json:"connected_at,omitempty"`
 	Source      string   `json:"source,omitempty"`

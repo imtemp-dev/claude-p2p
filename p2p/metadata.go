@@ -35,12 +35,20 @@ const (
 type PeerMetadata struct {
 	PeerID      string `json:"peer_id"`
 	DisplayName string `json:"display_name"`
+	Status      string `json:"status,omitempty"`
+	IdleSince   string `json:"idle_since,omitempty"`
 	Summary     string `json:"summary"`
 	Username    string `json:"username"`
 	Repo        string `json:"repo"`
 	Branch      string `json:"branch"`
 	UpdatedAt   string `json:"updated_at"`
 }
+
+const (
+	StatusActive  = "active"
+	StatusIdle    = "idle"
+	IdleThreshold = 2 * time.Minute
+)
 
 // truncateField truncates a string to maxLen bytes if it exceeds the limit.
 func truncateField(s string, maxLen int) string {
@@ -52,18 +60,22 @@ func truncateField(s string, maxLen int) string {
 
 // MetadataManager manages local metadata and broadcasts it to peers.
 type MetadataManager struct {
-	host         host.Host
-	peerTracker  *PeerTracker
-	topicManager *TopicManager
-	mu           sync.RWMutex
-	local        PeerMetadata
-	cancel       context.CancelFunc
-	wg           sync.WaitGroup
-	logger       *log.Logger
+	host            host.Host
+	peerTracker     *PeerTracker
+	topicManager    *TopicManager
+	getLastToolCall func() time.Time
+	mu              sync.RWMutex
+	local           PeerMetadata
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
+	logger          *log.Logger
 }
 
 // NewMetadataManager creates a manager, auto-detects git context, and starts periodic broadcast.
-func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, tm *TopicManager, logger *log.Logger) *MetadataManager {
+func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, tm *TopicManager, logger *log.Logger, getLastToolCall func() time.Time) *MetadataManager {
+	if getLastToolCall == nil {
+		getLastToolCall = func() time.Time { return time.Time{} }
+	}
 	username := "unknown"
 	if u, err := user.Current(); err == nil {
 		username = u.Username
@@ -89,9 +101,10 @@ func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, 
 	broadcastCtx, cancel := context.WithCancel(ctx)
 
 	mm := &MetadataManager{
-		host:         h,
-		peerTracker:  tracker,
-		topicManager: tm,
+		host:            h,
+		peerTracker:     tracker,
+		topicManager:    tm,
+		getLastToolCall: getLastToolCall,
 		local: PeerMetadata{
 			PeerID:      h.ID().String(),
 			DisplayName: displayName,
@@ -185,14 +198,27 @@ func (mm *MetadataManager) broadcastLoop(ctx context.Context) {
 }
 
 func (mm *MetadataManager) broadcast(ctx context.Context) {
-	mm.mu.RLock()
+	// Update status + marshal atomically under write lock
+	mm.mu.Lock()
+	lastTC := mm.getLastToolCall()
+	if lastTC.IsZero() || time.Since(lastTC) > IdleThreshold {
+		mm.local.Status = StatusIdle
+		if !lastTC.IsZero() {
+			mm.local.IdleSince = lastTC.Add(IdleThreshold).Format(time.RFC3339)
+		} else {
+			mm.local.IdleSince = ""
+		}
+	} else {
+		mm.local.Status = StatusActive
+		mm.local.IdleSince = ""
+	}
 	data, err := json.Marshal(mm.local)
-	mm.mu.RUnlock()
+	mm.mu.Unlock()
 	if err != nil {
 		mm.logger.Printf("metadata marshal error: %v", err)
 		return
 	}
-	if err := mm.topicManager.Broadcast(ctx, MetadataTopicName, string(data)); err != nil {
+	if err := mm.topicManager.Broadcast(ctx, MetadataTopicName, string(data), ""); err != nil {
 		// Don't log on context cancellation
 		if ctx.Err() == nil {
 			mm.logger.Printf("metadata broadcast error: %v", err)
