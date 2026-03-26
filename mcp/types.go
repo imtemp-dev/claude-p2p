@@ -76,8 +76,15 @@ type InitializeResult struct {
 
 // ServerCapabilities describes server capabilities.
 type ServerCapabilities struct {
-	Tools     *ToolsCapability     `json:"tools,omitempty"`
-	Resources *ResourcesCapability `json:"resources,omitempty"`
+	Tools        *ToolsCapability     `json:"tools,omitempty"`
+	Resources    *ResourcesCapability `json:"resources,omitempty"`
+	Experimental map[string]any       `json:"experimental,omitempty"`
+}
+
+// ChannelNotificationParams is the params for notifications/claude/channel.
+type ChannelNotificationParams struct {
+	Content string            `json:"content"`
+	Meta    map[string]string `json:"meta,omitempty"`
 }
 
 // ResourcesCapability describes the resources capability.

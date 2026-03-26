@@ -196,9 +196,14 @@ func (s *Server) handleInitialize(id any, params json.RawMessage) error {
 			Capabilities: ServerCapabilities{
 				Tools:     &ToolsCapability{ListChanged: true},
 				Resources: &ResourcesCapability{Subscribe: true, ListChanged: true},
+				Experimental: map[string]any{
+					"claude/channel": map[string]any{},
+				},
 			},
-			ServerInfo:   s.serverInfo,
-			Instructions: "P2P communication between Claude Code instances",
+			ServerInfo: s.serverInfo,
+			Instructions: "P2P communication between Claude Code instances. " +
+				"Incoming messages appear as <channel source=\"claude-p2p\" ...> tags. " +
+				"Reply using send_message tool with the peer_id from the from attribute.",
 		},
 	})
 }

@@ -510,8 +510,9 @@ func (n *Node) onInboxPush(msg p2p.InboxMessage) {
 	count := n.p2pHost.Inbox().Len()
 	n.syncInboxDescription(count, &msg)
 
-	// Tool description notification (real messages only)
+	// Real message notifications (skip _meta/metadata)
 	if msg.Topic != "_meta" && msg.Type != "metadata" && count > 0 {
+		// Tool description update
 		from := msg.From
 		if len(from) > 12 {
 			from = from[:12] + "..."
@@ -522,6 +523,20 @@ func (n *Node) onInboxPush(msg p2p.InboxMessage) {
 		if n.mcpServer.IsInitialized() {
 			if err := n.mcpServer.SendNotification("notifications/tools/list_changed", nil); err != nil {
 				n.logger.Printf("send tools/list_changed notification: %v", err)
+			}
+
+			// Channel notification — pushes message directly into Claude's context
+			meta := map[string]string{
+				"from":       msg.From,
+				"type":       msg.Type,
+				"message_id": msg.ID,
+			}
+			if msg.Topic != "" {
+				meta["topic"] = msg.Topic
+			}
+			if err := n.mcpServer.SendNotification("notifications/claude/channel",
+				mcp.ChannelNotificationParams{Content: msg.Content, Meta: meta}); err != nil {
+				n.logger.Printf("send channel notification: %v", err)
 			}
 		}
 	}
