@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"log"
 	"net/url"
+	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -31,12 +33,13 @@ const (
 
 // PeerMetadata holds work context information about a peer.
 type PeerMetadata struct {
-	PeerID    string `json:"peer_id"`
-	Summary   string `json:"summary"`
-	Username  string `json:"username"`
-	Repo      string `json:"repo"`
-	Branch    string `json:"branch"`
-	UpdatedAt string `json:"updated_at"`
+	PeerID      string `json:"peer_id"`
+	DisplayName string `json:"display_name"`
+	Summary     string `json:"summary"`
+	Username    string `json:"username"`
+	Repo        string `json:"repo"`
+	Branch      string `json:"branch"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // truncateField truncates a string to maxLen bytes if it exceeds the limit.
@@ -69,6 +72,20 @@ func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, 
 	repo := truncateField(sanitizeRepoURL(detectGit("remote", "get-url", "origin")), MaxRepoLength)
 	branch := truncateField(detectGit("rev-parse", "--abbrev-ref", "HEAD"), MaxBranchLength)
 
+	// Generate display name
+	dir, err := os.Getwd()
+	if err != nil {
+		dir = "unknown"
+	}
+	dirBase := filepath.Base(dir)
+	displayName := os.Getenv("CLAUDE_P2P_NAME")
+	if displayName == "" {
+		displayName = GenerateDisplayName(dirBase)
+	} else {
+		displayName = sanitizeDisplayName(displayName)
+	}
+	displayName = truncateFieldUTF8(displayName, MaxDisplayNameLength)
+
 	broadcastCtx, cancel := context.WithCancel(ctx)
 
 	mm := &MetadataManager{
@@ -76,12 +93,13 @@ func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, 
 		peerTracker:  tracker,
 		topicManager: tm,
 		local: PeerMetadata{
-			PeerID:    h.ID().String(),
-			Summary:   "",
-			Username:  username,
-			Repo:      repo,
-			Branch:    branch,
-			UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+			PeerID:      h.ID().String(),
+			DisplayName: displayName,
+			Summary:     "",
+			Username:    username,
+			Repo:        repo,
+			Branch:      branch,
+			UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
 		},
 		cancel: cancel,
 		logger: logger,
@@ -138,6 +156,7 @@ func (mm *MetadataManager) HandleMetadataMessage(msg Message, from peer.ID) {
 		return
 	}
 
+	meta.DisplayName = truncateFieldUTF8(meta.DisplayName, MaxDisplayNameLength)
 	meta.Summary = truncateField(meta.Summary, MaxSummaryLength)
 	meta.Username = truncateField(meta.Username, MaxUsernameLength)
 	meta.Repo = truncateField(meta.Repo, MaxRepoLength)

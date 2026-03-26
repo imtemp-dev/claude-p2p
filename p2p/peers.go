@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ type PeerTracker struct {
 	host           host.Host
 	mu             sync.RWMutex
 	peers          map[peer.ID]*TrackedPeer
+	nameIndex      map[string][]peer.ID // lowercase(displayName) → []peerID
 	pendingSources map[peer.ID]string
 	sub            event.Subscription
 	done           chan struct{}
@@ -44,6 +46,7 @@ func NewPeerTracker(h host.Host, logger *log.Logger) (*PeerTracker, error) {
 	return &PeerTracker{
 		host:           h,
 		peers:          make(map[peer.ID]*TrackedPeer),
+		nameIndex:      make(map[string][]peer.ID),
 		pendingSources: make(map[peer.ID]string),
 		sub:            sub,
 		done:           make(chan struct{}),
@@ -73,6 +76,7 @@ func (pt *PeerTracker) Start(_ context.Context) {
 					Source:      source,
 				}
 			} else if e.Connectedness == network.NotConnected {
+				pt.removeFromNameIndex(e.Peer)
 				delete(pt.peers, e.Peer)
 				delete(pt.pendingSources, e.Peer)
 			}
@@ -153,13 +157,66 @@ func (pt *PeerTracker) Count() int {
 func (pt *PeerTracker) SetMetadata(id peer.ID, meta PeerMetadata) {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
-	if p, ok := pt.peers[id]; ok {
-		pt.peers[id] = &TrackedPeer{
-			ID:          p.ID,
-			Addrs:       p.Addrs,
-			ConnectedAt: p.ConnectedAt,
-			Source:      p.Source,
-			Metadata:    &meta,
+	p, ok := pt.peers[id]
+	if !ok {
+		return
+	}
+	// Remove old display name from nameIndex
+	if p.Metadata != nil && p.Metadata.DisplayName != "" {
+		oldKey := strings.ToLower(p.Metadata.DisplayName)
+		pt.removeNameEntry(oldKey, id)
+	}
+	// Add new display name to nameIndex
+	if meta.DisplayName != "" {
+		newKey := strings.ToLower(meta.DisplayName)
+		pt.nameIndex[newKey] = append(pt.nameIndex[newKey], id)
+	}
+	pt.peers[id] = &TrackedPeer{
+		ID:          p.ID,
+		Addrs:       p.Addrs,
+		ConnectedAt: p.ConnectedAt,
+		Source:      p.Source,
+		Metadata:    &meta,
+	}
+}
+
+// FindByName returns peer IDs matching the given display name (case-insensitive).
+// Returns nil if no match found. Returns a copy of the internal slice.
+func (pt *PeerTracker) FindByName(name string) []peer.ID {
+	pt.mu.RLock()
+	defer pt.mu.RUnlock()
+	key := strings.ToLower(name)
+	ids := pt.nameIndex[key]
+	if len(ids) == 0 {
+		return nil
+	}
+	result := make([]peer.ID, len(ids))
+	copy(result, ids)
+	return result
+}
+
+// removeFromNameIndex removes a peer's display name from the index. Must be called under write lock.
+func (pt *PeerTracker) removeFromNameIndex(id peer.ID) {
+	p, ok := pt.peers[id]
+	if !ok || p.Metadata == nil || p.Metadata.DisplayName == "" {
+		return
+	}
+	key := strings.ToLower(p.Metadata.DisplayName)
+	pt.removeNameEntry(key, id)
+}
+
+// removeNameEntry removes a peer ID from a nameIndex entry. Must be called under write lock.
+func (pt *PeerTracker) removeNameEntry(key string, id peer.ID) {
+	ids := pt.nameIndex[key]
+	filtered := ids[:0]
+	for _, pid := range ids {
+		if pid != id {
+			filtered = append(filtered, pid)
 		}
+	}
+	if len(filtered) == 0 {
+		delete(pt.nameIndex, key)
+	} else {
+		pt.nameIndex[key] = filtered
 	}
 }

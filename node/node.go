@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -125,7 +126,7 @@ func (n *Node) registerTools() {
 	n.registry.Register(mcp.Tool{
 		Name:        "send_message",
 		Description: "Send a message to a specific peer or broadcast to a topic",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"peer_id":{"type":"string","description":"Target peer ID (for direct message)"},"message":{"type":"string","description":"Message content"},"topic":{"type":"string","description":"Topic to broadcast to (alternative to peer_id)"}},"required":["message"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"peer_id":{"type":"string","description":"Target peer ID or display name (for direct message)"},"message":{"type":"string","description":"Message content"},"topic":{"type":"string","description":"Topic to broadcast to (alternative to peer_id)"}},"required":["message"]}`),
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint:    mcp.BoolPtr(false),
 			DestructiveHint: mcp.BoolPtr(false),
@@ -213,6 +214,7 @@ func (n *Node) handleListPeers(_ context.Context, args json.RawMessage) (*mcp.To
 			Source:      tp.Source,
 		}
 		if tp.Metadata != nil {
+			pi.DisplayName = tp.Metadata.DisplayName
 			pi.Summary = tp.Metadata.Summary
 			pi.Username = tp.Metadata.Username
 			pi.Repo = tp.Metadata.Repo
@@ -301,13 +303,29 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		}, nil
 	}
 
-	// Direct message path
+	// Direct message path — resolve peer ID or display name
 	decodedPeerID, err := peer.Decode(params.PeerID)
 	if err != nil {
-		return &mcp.ToolResult{
-			Content: []mcp.ContentItem{{Type: "text", Text: "invalid peer ID: " + err.Error()}},
-			IsError: true,
-		}, nil
+		// Not a valid peer ID, try name resolution
+		matches := n.p2pHost.PeerTracker().FindByName(params.PeerID)
+		switch len(matches) {
+		case 0:
+			return &mcp.ToolResult{
+				Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("peer not found: '%s'", params.PeerID)}},
+				IsError: true,
+			}, nil
+		case 1:
+			decodedPeerID = matches[0]
+		default:
+			ids := make([]string, len(matches))
+			for i, id := range matches {
+				ids[i] = id.String()
+			}
+			return &mcp.ToolResult{
+				Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("multiple peers named '%s', use peer_id instead: [%s]", params.PeerID, strings.Join(ids, ", "))}},
+				IsError: true,
+			}, nil
+		}
 	}
 
 	if err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message); err != nil {

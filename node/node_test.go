@@ -179,8 +179,8 @@ func TestHandleSendMessage_InvalidPeerID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsError || !strings.Contains(result.Content[0].Text, "invalid peer ID") {
-		t.Errorf("expected invalid peer ID error, got: %s", result.Content[0].Text)
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "peer not found") {
+		t.Errorf("expected peer not found error, got: %s", result.Content[0].Text)
 	}
 }
 
@@ -493,6 +493,150 @@ func TestNewForTest_WithP2P(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected p2p://inbox resource to be registered")
+	}
+}
+
+// --- nickname resolve tests ---
+
+func TestHandleSendMessage_ResolveByName(t *testing.T) {
+	ctx := context.Background()
+	logger := testLogger()
+
+	host1, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host1.Close()
+
+	host2, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host2.Close()
+
+	// Connect
+	h1 := host1.LibP2PHost()
+	h2 := host2.LibP2PHost()
+	h1.Peerstore().AddAddrs(h2.ID(), h2.Addrs(), time.Hour)
+	if err := h1.Connect(ctx, h2.Peerstore().PeerInfo(h2.ID())); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	// Set metadata with display name on host1's tracker for host2
+	host1.PeerTracker().SetMetadata(h2.ID(), p2p.PeerMetadata{
+		DisplayName: "test-swift-fox",
+	})
+
+	// Create node with host1
+	registry := mcp.NewToolRegistry()
+	resources := mcp.NewResourceRegistry()
+	server := newTestMCPServer(registry, resources)
+	n := &Node{
+		mcpServer: server, p2pHost: host1,
+		registry: registry, resources: resources, logger: logger,
+	}
+	n.registerTools()
+	n.registerResources()
+
+	// Send message using display name
+	result, err := callTool(n, "send_message", map[string]string{
+		"peer_id": "test-swift-fox",
+		"message": "hello by name",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content[0].Text)
+	}
+	if !strings.Contains(result.Content[0].Text, "Message sent to") {
+		t.Errorf("unexpected result: %s", result.Content[0].Text)
+	}
+
+	// Verify message arrived
+	time.Sleep(100 * time.Millisecond)
+	msgs := host2.Inbox().Pop()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].Content != "hello by name" {
+		t.Errorf("unexpected content: %s", msgs[0].Content)
+	}
+}
+
+func TestHandleSendMessage_NameNotFound(t *testing.T) {
+	n, cleanup := newTestNode(t, true)
+	defer cleanup()
+
+	result, err := callTool(n, "send_message", map[string]string{
+		"peer_id": "nonexistent-name",
+		"message": "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "peer not found") {
+		t.Errorf("expected 'peer not found', got: %s", result.Content[0].Text)
+	}
+}
+
+func TestHandleSendMessage_DuplicateName(t *testing.T) {
+	ctx := context.Background()
+	logger := testLogger()
+
+	host1, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host1.Close()
+
+	host2, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host2.Close()
+
+	host3, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host3.Close()
+
+	h1 := host1.LibP2PHost()
+	h2 := host2.LibP2PHost()
+	h3 := host3.LibP2PHost()
+
+	// Connect host1 to host2 and host3
+	h1.Peerstore().AddAddrs(h2.ID(), h2.Addrs(), time.Hour)
+	h1.Connect(ctx, h2.Peerstore().PeerInfo(h2.ID()))
+	h1.Peerstore().AddAddrs(h3.ID(), h3.Addrs(), time.Hour)
+	h1.Connect(ctx, h3.Peerstore().PeerInfo(h3.ID()))
+	time.Sleep(200 * time.Millisecond)
+
+	// Set same display name for both
+	host1.PeerTracker().SetMetadata(h2.ID(), p2p.PeerMetadata{DisplayName: "duplicate-name"})
+	host1.PeerTracker().SetMetadata(h3.ID(), p2p.PeerMetadata{DisplayName: "duplicate-name"})
+
+	registry := mcp.NewToolRegistry()
+	resources := mcp.NewResourceRegistry()
+	server := newTestMCPServer(registry, resources)
+	n := &Node{
+		mcpServer: server, p2pHost: host1,
+		registry: registry, resources: resources, logger: logger,
+	}
+	n.registerTools()
+	n.registerResources()
+
+	result, err := callTool(n, "send_message", map[string]string{
+		"peer_id": "duplicate-name",
+		"message": "hello",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "multiple peers named") {
+		t.Errorf("expected duplicate name error, got: %s", result.Content[0].Text)
 	}
 }
 
