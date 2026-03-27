@@ -35,6 +35,7 @@ type PeerTracker struct {
 	done           chan struct{}
 	closed         bool
 	logger         *log.Logger
+	onDisconnect   func(id peer.ID, displayName string) // called when a known peer disconnects
 }
 
 // NewPeerTracker creates a peer tracker and subscribes to connection events.
@@ -55,6 +56,13 @@ func NewPeerTracker(h host.Host, logger *log.Logger) (*PeerTracker, error) {
 }
 
 // Start begins processing connection events in a background goroutine.
+// SetOnDisconnect registers a callback invoked when a peer with metadata disconnects.
+func (pt *PeerTracker) SetOnDisconnect(fn func(id peer.ID, displayName string)) {
+	pt.mu.Lock()
+	defer pt.mu.Unlock()
+	pt.onDisconnect = fn
+}
+
 func (pt *PeerTracker) Start(_ context.Context) {
 	go func() {
 		defer close(pt.done)
@@ -76,9 +84,18 @@ func (pt *PeerTracker) Start(_ context.Context) {
 					Source:      source,
 				}
 			} else if e.Connectedness == network.NotConnected {
+				// Capture display name before removing peer
+				var displayName string
+				if p, ok := pt.peers[e.Peer]; ok && p.Metadata.DisplayName != "" {
+					displayName = p.Metadata.DisplayName
+				}
 				pt.removeFromNameIndex(e.Peer)
 				delete(pt.peers, e.Peer)
 				delete(pt.pendingSources, e.Peer)
+				// Notify after cleanup (still under lock, callback should be fast)
+				if displayName != "" && pt.onDisconnect != nil {
+					go pt.onDisconnect(e.Peer, displayName)
+				}
 			}
 			pt.mu.Unlock()
 		}
