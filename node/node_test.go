@@ -449,7 +449,7 @@ func TestNewForTest_NilP2P(t *testing.T) {
 
 	// Tools should be registered even without P2P
 	tools := n.registry.List()
-	if len(tools) != 5 {
+	if len(tools) != 6 {
 		t.Errorf("expected 5 tools, got %d", len(tools))
 	}
 
