@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -82,6 +83,34 @@ func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content stri
 	stream.CloseWrite()
 	stream.Close()
 	return nil
+}
+
+// SendReadReceipt sends a lightweight read receipt for a message back to the sender.
+// Disabled if CLAUDE_P2P_READ_RECEIPTS=false.
+func (m *Messenger) SendReadReceipt(ctx context.Context, originalMsg Message) {
+	if os.Getenv("CLAUDE_P2P_READ_RECEIPTS") == "false" {
+		return
+	}
+	// Only send receipts for direct messages
+	if originalMsg.Type != "direct" {
+		return
+	}
+	senderID, err := peer.Decode(originalMsg.From)
+	if err != nil {
+		m.logger.Printf("read receipt: invalid sender peer ID: %v", err)
+		return
+	}
+	if senderID == m.host.ID() {
+		return
+	}
+	go func() {
+		receiptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := m.SendDirect(receiptCtx, senderID, originalMsg.ID, ""); err != nil {
+			m.logger.Printf("read receipt send failed for %s: %v", originalMsg.ID, err)
+			return
+		}
+	}()
 }
 
 func (m *Messenger) handleStream(s network.Stream) {
