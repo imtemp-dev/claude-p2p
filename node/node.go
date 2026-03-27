@@ -557,7 +557,9 @@ func (n *Node) registerResources() {
 
 	// Notify when a known peer disconnects
 	n.p2pHost.PeerTracker().SetOnDisconnect(func(id peer.ID, displayName string) {
-		n.logger.Printf("peer disconnected: %s (%s)", displayName, id.String()[:12])
+		pidStr := id.String()
+		if len(pidStr) > 12 { pidStr = pidStr[:12] + "..." }
+		n.logger.Printf("peer disconnected: %s (%s)", displayName, pidStr)
 	
 		// Update tool description
 		desc := fmt.Sprintf("⚠ peer '%s' disconnected. Use list_peers to see connected peers.", displayName)
