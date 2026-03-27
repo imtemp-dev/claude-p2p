@@ -427,6 +427,10 @@ func (n *Node) handleGetMessages(_ context.Context, args json.RawMessage) (*mcp.
 		messages = n.p2pHost.Inbox().Peek()
 	} else {
 		messages = n.p2pHost.Inbox().Pop()
+		// Send read receipts for direct messages (async, non-blocking)
+		for _, msg := range messages {
+			n.p2pHost.Messenger().SendReadReceipt(context.Background(), msg.Message)
+		}
 		// Sync resource description after clearing inbox and notify client
 		if len(messages) > 0 {
 			n.syncInboxDescription(0, nil)
