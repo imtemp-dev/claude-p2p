@@ -92,7 +92,7 @@ func (pt *PeerTracker) Start(_ context.Context) {
 				pt.removeFromNameIndex(e.Peer)
 				delete(pt.peers, e.Peer)
 				delete(pt.pendingSources, e.Peer)
-				// Notify after cleanup (still under lock, callback should be fast)
+				// Notify after cleanup (callback runs async via goroutine)
 				if displayName != "" && pt.onDisconnect != nil {
 					go pt.onDisconnect(e.Peer, displayName)
 				}
