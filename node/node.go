@@ -455,6 +455,15 @@ func (n *Node) handleGetMessages(_ context.Context, args json.RawMessage) (*mcp.
 		}
 	}
 
+	// Filter out read_receipt messages from results (they're internal)
+	filtered := make([]p2p.InboxMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Type != "read_receipt" {
+			filtered = append(filtered, msg)
+		}
+	}
+	messages = filtered
+
 	if messages == nil {
 		messages = []p2p.InboxMessage{} // ensure empty array in JSON, not null
 	}
