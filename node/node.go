@@ -560,7 +560,7 @@ func (n *Node) registerResources() {
 		n.logger.Printf("peer disconnected: %s (%s)", displayName, id.String()[:12])
 	
 		// Update tool description
-		desc := fmt.Sprintf("⚠ peer '%s' disconnected. %s", displayName, listPeersDefaultDesc)
+		desc := fmt.Sprintf("⚠ peer '%s' disconnected. Use list_peers to see connected peers.", displayName)
 		n.registry.UpdateDescription("list_peers", desc)
 		if n.mcpServer.IsInitialized() {
 			n.mcpServer.SendNotification("notifications/tools/list_changed", nil)
