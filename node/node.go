@@ -146,6 +146,17 @@ func (n *Node) registerTools() {
 		},
 	}, n.handleSetSummary)
 
+	n.registry.Register(mcp.Tool{
+		Name:        "set_name",
+		Description: "Change display name visible to connected peers at runtime",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","description":"New display name"}},"required":["name"]}`),
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:    mcp.BoolPtr(false),
+			DestructiveHint: mcp.BoolPtr(false),
+			OpenWorldHint:   mcp.BoolPtr(true),
+		},
+	}, n.handleSetName)
+
 	// Real join_topic handler
 	n.registry.Register(mcp.Tool{
 		Name:        "join_topic",
@@ -492,6 +503,37 @@ func (n *Node) handleSetSummary(_ context.Context, args json.RawMessage) (*mcp.T
 
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("Summary updated: %s", params.Summary)}},
+	}, nil
+}
+
+func (n *Node) handleSetName(_ context.Context, args json.RawMessage) (*mcp.ToolResult, error) {
+	if n.p2pHost == nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{Type: "text", Text: "P2P is disabled"}},
+			IsError: true,
+		}, nil
+	}
+
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{Type: "text", Text: "Invalid arguments: " + err.Error()}},
+			IsError: true,
+		}, nil
+	}
+	if params.Name == "" {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{Type: "text", Text: "Name cannot be empty"}},
+			IsError: true,
+		}, nil
+	}
+
+	n.p2pHost.MetadataManager().SetDisplayName(params.Name)
+
+	return &mcp.ToolResult{
+		Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("Display name changed to: %s", params.Name)}},
 	}, nil
 }
 
