@@ -153,6 +153,15 @@ func (mm *MetadataManager) SetSummary(summary string) {
 	mm.mu.Unlock()
 }
 
+// SetDisplayName changes the local peer's display name at runtime.
+// The name is sanitized and truncated, then broadcast to peers on the next metadata cycle.
+func (mm *MetadataManager) SetDisplayName(name string) {
+	mm.mu.Lock()
+	mm.local.DisplayName = truncateFieldUTF8(sanitizeDisplayName(name), MaxDisplayNameLength)
+	mm.local.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	mm.mu.Unlock()
+}
+
 // LocalMetadata returns a copy of the local metadata.
 func (mm *MetadataManager) LocalMetadata() PeerMetadata {
 	mm.mu.RLock()
