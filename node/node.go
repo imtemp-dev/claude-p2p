@@ -343,10 +343,10 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		}, nil
 	}
 
-	successMsg := fmt.Sprintf("Message sent to %s", params.PeerID)
-		if params.PeerID != decodedPeerID.String() {
-			successMsg = fmt.Sprintf("Message sent to %s (%s)", params.PeerID, decodedPeerID)
-		}
+successMsg := fmt.Sprintf("Message sent to %s", params.PeerID)
+	if params.PeerID != decodedPeerID.String() {
+		successMsg = fmt.Sprintf("Message sent to %s (%s)", params.PeerID, decodedPeerID)
+	}
 		return &mcp.ToolResult{
 			Content: []mcp.ContentItem{{Type: "text", Text: successMsg}},
 	}, nil
