@@ -51,8 +51,8 @@ func NewMessenger(h host.Host, inbox *Inbox, logger *log.Logger) *Messenger {
 	return m
 }
 
-// SendDirect sends a direct message to a specific peer.
-func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string) error {
+// sendWithType sends a message with a specified type.
+func (m *Messenger) sendWithType(ctx context.Context, peerID peer.ID, content string, replyTo string, msgType string) error {
 	stream, err := m.host.NewStream(ctx, peerID, protocol.ID(ProtocolID))
 	if err != nil {
 		return fmt.Errorf("open stream: %w", err)
@@ -62,7 +62,7 @@ func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content stri
 		From:      m.host.ID().String(),
 		To:        peerID.String(),
 		Content:   content,
-		Type:      "direct",
+		Type:      msgType,
 		ReplyTo:   replyTo,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
@@ -85,13 +85,18 @@ func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content stri
 	return nil
 }
 
+// SendDirect sends a direct message to a specific peer.
+func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string) error {
+	return m.sendWithType(ctx, peerID, content, replyTo, "direct")
+}
+
 // SendReadReceipt sends a lightweight read receipt for a message back to the sender.
 // Disabled if CLAUDE_P2P_READ_RECEIPTS=false.
 func (m *Messenger) SendReadReceipt(ctx context.Context, originalMsg Message) {
 	if os.Getenv("CLAUDE_P2P_READ_RECEIPTS") == "false" {
 		return
 	}
-	// Only send receipts for direct messages
+	// Only send receipts for direct messages (not broadcasts, not receipts)
 	if originalMsg.Type != "direct" {
 		return
 	}
@@ -106,7 +111,7 @@ func (m *Messenger) SendReadReceipt(ctx context.Context, originalMsg Message) {
 	go func() {
 		receiptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if err := m.SendDirect(receiptCtx, senderID, originalMsg.ID, ""); err != nil {
+		if err := m.sendWithType(receiptCtx, senderID, originalMsg.ID, "", "read_receipt"); err != nil {
 			m.logger.Printf("read receipt send failed for %s: %v", originalMsg.ID, err)
 			return
 		}
