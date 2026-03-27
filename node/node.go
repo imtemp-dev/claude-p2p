@@ -427,6 +427,10 @@ func (n *Node) handleGetMessages(_ context.Context, args json.RawMessage) (*mcp.
 		messages = n.p2pHost.Inbox().Peek()
 	} else {
 		messages = n.p2pHost.Inbox().Pop()
+		// Send read receipts for direct messages (async, non-blocking)
+		for _, msg := range messages {
+			n.p2pHost.Messenger().SendReadReceipt(context.Background(), msg.Message)
+		}
 		// Sync resource description after clearing inbox and notify client
 		if len(messages) > 0 {
 			n.syncInboxDescription(0, nil)
@@ -450,6 +454,15 @@ func (n *Node) handleGetMessages(_ context.Context, args json.RawMessage) (*mcp.
 			}
 		}
 	}
+
+	// Filter out read_receipt messages from results (they're internal)
+	filtered := make([]p2p.InboxMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Type != "read_receipt" {
+			filtered = append(filtered, msg)
+		}
+	}
+	messages = filtered
 
 	if messages == nil {
 		messages = []p2p.InboxMessage{} // ensure empty array in JSON, not null
