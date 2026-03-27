@@ -86,7 +86,7 @@ func (pt *PeerTracker) Start(_ context.Context) {
 			} else if e.Connectedness == network.NotConnected {
 				// Capture display name before removing peer
 				var displayName string
-				if p, ok := pt.peers[e.Peer]; ok && p.Metadata.DisplayName != "" {
+				if p, ok := pt.peers[e.Peer]; ok && p.Metadata != nil && p.Metadata.DisplayName != "" {
 					displayName = p.Metadata.DisplayName
 				}
 				pt.removeFromNameIndex(e.Peer)
