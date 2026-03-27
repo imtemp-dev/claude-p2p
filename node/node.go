@@ -333,14 +333,22 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 	}
 
 	if err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message, params.ReplyTo); err != nil {
+		errMsg := err.Error()
+		if params.PeerID != decodedPeerID.String() {
+			errMsg = fmt.Sprintf("failed to reach '%s' (%s): %v", params.PeerID, decodedPeerID, err)
+		}
 		return &mcp.ToolResult{
-			Content: []mcp.ContentItem{{Type: "text", Text: err.Error()}},
+			Content: []mcp.ContentItem{{Type: "text", Text: errMsg}},
 			IsError: true,
 		}, nil
 	}
 
-	return &mcp.ToolResult{
-		Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("Message sent to %s", params.PeerID)}},
+	successMsg := fmt.Sprintf("Message sent to %s", params.PeerID)
+		if params.PeerID != decodedPeerID.String() {
+			successMsg = fmt.Sprintf("Message sent to %s (%s)", params.PeerID, decodedPeerID)
+		}
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{Type: "text", Text: successMsg}},
 	}, nil
 }
 
