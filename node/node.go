@@ -554,6 +554,43 @@ func (n *Node) registerResources() {
 	}, n.readInboxResource)
 
 	n.p2pHost.Inbox().SetOnPush(n.onInboxPush)
+
+	// Notify when a known peer disconnects
+	n.p2pHost.PeerTracker().SetOnDisconnect(func(id peer.ID, displayName string) {
+		pidStr := id.String()
+		if len(pidStr) > 12 { pidStr = pidStr[:12] + "..." }
+		n.logger.Printf("peer disconnected: %s (%s)", displayName, pidStr)
+	
+		// Update tool description
+		desc := fmt.Sprintf("⚠ peer '%s' disconnected. Use list_peers to see connected peers.", displayName)
+		n.registry.UpdateDescription("list_peers", desc)
+		if n.mcpServer.IsInitialized() {
+			n.mcpServer.SendNotification("notifications/tools/list_changed", nil)
+		}
+	
+		// Channel notification (unless lazy mode)
+		if os.Getenv("CLAUDE_P2P_MODE") != "lazy" && n.mcpServer.IsInitialized() {
+			meta := map[string]string{
+				"from": displayName,
+				"type": "disconnect",
+			}
+			n.mcpServer.SendNotification("notifications/claude/channel",
+				mcp.ChannelNotificationParams{
+					Content: fmt.Sprintf("Peer '%s' has disconnected.", displayName),
+					Meta:    meta,
+				})
+		}
+	
+		// Desktop notification
+		switch runtime.GOOS {
+		case "darwin":
+			go exec.Command("osascript", "-e",
+				fmt.Sprintf(`display notification "Peer '%s' disconnected" with title "claude-p2p"`, displayName),
+			).Run()
+		case "linux":
+			go exec.Command("notify-send", "claude-p2p", fmt.Sprintf("Peer '%s' disconnected", displayName)).Run()
+		}
+	})
 }
 
 func (n *Node) readInboxResource() (*mcp.ResourcesReadResult, error) {
