@@ -3,11 +3,14 @@ package p2p
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -29,33 +32,102 @@ const (
 
 // Host wraps a libp2p host with discovery, topic management, messaging, and peer tracking.
 type Host struct {
-	host         host.Host
-	discovery    *Discovery
-	topicManager *TopicManager
-	peerTracker  *PeerTracker
+	host            host.Host
+	discovery       *Discovery
+	topicManager    *TopicManager
+	peerTracker     *PeerTracker
 	messenger       *Messenger
 	metadataManager *MetadataManager
 	inbox           *Inbox
 	ps              *pubsub.PubSub
 	logger          *log.Logger
+	identityCleanup func()
 }
 
-// identityDir returns the directory for persistent identity files.
+// identityDir returns the per-cwd directory for persistent identity files.
+// Uses SHA256 prefix of cwd to avoid basename collisions.
+// Falls back to legacy ~/.claude-p2p/ if migration is needed.
 func identityDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".claude-p2p")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	hash := sha256.Sum256([]byte(cwd))
+	dirName := hex.EncodeToString(hash[:])[:8]
+	return filepath.Join(home, ".claude-p2p", "identities", dirName)
+}
+
+// migrateLegacyIdentity moves legacy ~/.claude-p2p/identity.key and name
+// to the new per-cwd directory if they exist.
+func migrateLegacyIdentity(newDir string, logger *log.Logger) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	legacyDir := filepath.Join(home, ".claude-p2p")
+	legacyKey := filepath.Join(legacyDir, "identity.key")
+	legacyName := filepath.Join(legacyDir, "name")
+
+	// Only migrate if legacy files exist and new dir doesn't have them
+	newKey := filepath.Join(newDir, "identity.key")
+	if _, err := os.Stat(newKey); err == nil {
+		return // New identity already exists, skip migration
+	}
+
+	if data, err := os.ReadFile(legacyKey); err == nil {
+		os.MkdirAll(newDir, 0700)
+		if err := os.WriteFile(newKey, data, 0600); err == nil {
+			os.Remove(legacyKey)
+			logger.Printf("migrated identity key to %s", newDir)
+		}
+	}
+
+	newName := filepath.Join(newDir, "name")
+	if _, err := os.Stat(newName); err != nil {
+		if data, err := os.ReadFile(legacyName); err == nil {
+			os.WriteFile(newName, data, 0600)
+			os.Remove(legacyName)
+			logger.Printf("migrated display name to %s", newDir)
+		}
+	}
 }
 
 // loadOrCreateIdentity loads a persistent Ed25519 key from disk, or creates one.
-func loadOrCreateIdentity(logger *log.Logger) crypto.PrivKey {
+// Uses per-cwd directory with lockfile to detect duplicate sessions.
+func loadOrCreateIdentity(logger *log.Logger) (crypto.PrivKey, func()) {
 	dir := identityDir()
 	if dir == "" {
 		logger.Println("cannot determine home dir, using ephemeral identity")
 		key, _, _ := crypto.GenerateEd25519Key(rand.Reader)
-		return key
+		return key, func() {}
+	}
+
+	os.MkdirAll(dir, 0700)
+	migrateLegacyIdentity(dir, logger)
+
+	// Lockfile to detect duplicate sessions in same cwd
+	lockPath := filepath.Join(dir, "identity.lock")
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	cleanup := func() {}
+	if err == nil {
+		err = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err != nil {
+			lockFile.Close()
+			logger.Println("another session is using this identity, using ephemeral identity")
+			key, _, _ := crypto.GenerateEd25519Key(rand.Reader)
+			return key, func() {}
+		}
+		cleanup = func() {
+			syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+			lockFile.Close()
+			os.Remove(lockPath)
+		}
 	}
 
 	keyPath := filepath.Join(dir, "identity.key")
@@ -63,7 +135,7 @@ func loadOrCreateIdentity(logger *log.Logger) crypto.PrivKey {
 	if err == nil {
 		key, err := crypto.UnmarshalPrivateKey(data)
 		if err == nil {
-			return key
+			return key, cleanup
 		}
 		logger.Printf("corrupt identity key, regenerating: %v", err)
 	}
@@ -72,15 +144,13 @@ func loadOrCreateIdentity(logger *log.Logger) crypto.PrivKey {
 	key, _, err := crypto.GenerateEd25519Key(rand.Reader)
 	if err != nil {
 		logger.Printf("key generation failed: %v", err)
-		return nil
+		return nil, cleanup
 	}
 	raw, err := crypto.MarshalPrivateKey(key)
 	if err == nil {
-		if mkErr := os.MkdirAll(dir, 0700); mkErr == nil {
-			os.WriteFile(keyPath, raw, 0600)
-		}
+		os.WriteFile(keyPath, raw, 0600)
 	}
-	return key
+	return key, cleanup
 }
 
 // NewHost creates a libp2p host with all subsystems.
@@ -104,7 +174,8 @@ func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() tim
 		libp2p.EnableRelayService(),
 		libp2p.ConnectionManager(cm),
 	}
-	if key := loadOrCreateIdentity(logger); key != nil {
+	key, identityCleanup := loadOrCreateIdentity(logger)
+	if key != nil {
 		opts = append(opts, libp2p.Identity(key))
 	}
 	h, err := libp2p.New(opts...)
@@ -180,6 +251,7 @@ func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() tim
 		inbox:           inbox,
 		ps:              ps,
 		logger:          logger,
+		identityCleanup: identityCleanup,
 	}, nil
 }
 
@@ -262,6 +334,9 @@ func (h *Host) Close() error {
 	}
 	if err := h.host.Close(); err != nil {
 		errs = append(errs, err)
+	}
+	if h.identityCleanup != nil {
+		h.identityCleanup()
 	}
 	return errors.Join(errs...)
 }

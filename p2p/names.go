@@ -54,14 +54,15 @@ func sanitizeDir(dir string) string {
 	return s
 }
 
-// loadOrGenerateDisplayName loads a saved name from ~/.claude-p2p/name,
+// loadOrGenerateDisplayName loads a saved name from the per-cwd identity directory,
 // or generates a new one and saves it.
 func loadOrGenerateDisplayName(dir string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
+	idDir := identityDir()
+	if idDir == "" {
 		return GenerateDisplayName(dir)
 	}
-	nameFile := filepath.Join(home, ".claude-p2p", "name")
+
+	nameFile := filepath.Join(idDir, "name")
 	data, err := os.ReadFile(nameFile)
 	if err == nil {
 		name := strings.TrimSpace(string(data))
@@ -71,10 +72,8 @@ func loadOrGenerateDisplayName(dir string) string {
 	}
 
 	name := GenerateDisplayName(dir)
-	dirPath := filepath.Join(home, ".claude-p2p")
-	if mkErr := os.MkdirAll(dirPath, 0700); mkErr == nil {
-		os.WriteFile(nameFile, []byte(name), 0600)
-	}
+	os.MkdirAll(idDir, 0700)
+	os.WriteFile(nameFile, []byte(name), 0600)
 	return name
 }
 
