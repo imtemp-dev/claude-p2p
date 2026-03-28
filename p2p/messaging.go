@@ -21,18 +21,30 @@ const (
 
 	// MaxMessageSize is the maximum message size in bytes (64KB).
 	MaxMessageSize = 65536
+
+	// ContentTypeText is the default content type for plain text messages.
+	ContentTypeText = "text"
 )
+
+// ValidContentTypes lists the supported structured message types.
+var ValidContentTypes = map[string]bool{
+	"text":        true,
+	"query":       true,
+	"code-review": true,
+	"task":        true,
+}
 
 // Message is the wire format for both direct and broadcast messages.
 type Message struct {
-	ID        string `json:"id"`
-	From      string `json:"from"`
-	To        string `json:"to,omitempty"`
-	Content   string `json:"content"`
-	Type      string `json:"type"`
-	Topic     string `json:"topic,omitempty"`
-	ReplyTo   string `json:"reply_to,omitempty"`
-	Timestamp string `json:"timestamp"`
+	ID          string `json:"id"`
+	From        string `json:"from"`
+	To          string `json:"to,omitempty"`
+	Content     string `json:"content"`
+	ContentType string `json:"content_type,omitempty"`
+	Type        string `json:"type"`
+	Topic       string `json:"topic,omitempty"`
+	ReplyTo     string `json:"reply_to,omitempty"`
+	Timestamp   string `json:"timestamp"`
 }
 
 // Messenger handles sending and receiving messages over libp2p streams.
@@ -51,19 +63,26 @@ func NewMessenger(h host.Host, inbox *Inbox, logger *log.Logger) *Messenger {
 }
 
 // SendDirect sends a direct message to a specific peer.
-func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string) error {
+// contentType defaults to "text" if not provided or empty.
+func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string, contentType ...string) error {
+	ct := ContentTypeText
+	if len(contentType) > 0 && contentType[0] != "" {
+		ct = contentType[0]
+	}
+
 	stream, err := m.host.NewStream(ctx, peerID, protocol.ID(ProtocolID))
 	if err != nil {
 		return fmt.Errorf("open stream: %w", err)
 	}
 	msg := Message{
-		ID:        GenerateMessageID(m.host.ID(), &m.seq),
-		From:      m.host.ID().String(),
-		To:        peerID.String(),
-		Content:   content,
-		Type:      "direct",
-		ReplyTo:   replyTo,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		ID:          GenerateMessageID(m.host.ID(), &m.seq),
+		From:        m.host.ID().String(),
+		To:          peerID.String(),
+		Content:     content,
+		ContentType: ct,
+		Type:        "direct",
+		ReplyTo:     replyTo,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -100,13 +119,15 @@ func (m *Messenger) handleStream(s network.Stream) {
 		m.logger.Printf("message unmarshal error: %v", err)
 		return
 	}
-	// Override From with authenticated transport peer ID (CRT-001 fix)
 	msg.From = s.Conn().RemotePeer().String()
+	if msg.ContentType == "" {
+		msg.ContentType = ContentTypeText
+	}
 	m.inbox.Push(InboxMessage{
 		Message:    msg,
 		ReceivedAt: time.Now().UTC().Format(time.RFC3339),
 	})
-	m.logger.Printf("received direct message from %s", msg.From)
+	m.logger.Printf("received %s message from %s", msg.ContentType, msg.From)
 }
 
 // Close removes the stream handler.
