@@ -272,9 +272,9 @@ func (tm *TopicManager) JoinLocal(topic string) error {
 }
 
 // Broadcast publishes a broadcast message to a topic via GossipSub.
-func (tm *TopicManager) Broadcast(ctx context.Context, topic string, content string, replyTo string) error {
+func (tm *TopicManager) Broadcast(ctx context.Context, topic string, content string, replyTo string) (Message, error) {
 	if tm.pubsub == nil {
-		return fmt.Errorf("GossipSub not available")
+		return Message{}, fmt.Errorf("GossipSub not available")
 	}
 
 	// Rate limit check
@@ -287,14 +287,14 @@ func (tm *TopicManager) Broadcast(ctx context.Context, topic string, content str
 	allowed := bucket.allow()
 	tm.rateMu.Unlock()
 	if !allowed {
-		return fmt.Errorf("broadcast rate limit exceeded for topic %q (max %d/sec)", topic, BroadcastRateLimit)
+		return Message{}, fmt.Errorf("broadcast rate limit exceeded for topic %q (max %d/sec)", topic, BroadcastRateLimit)
 	}
 
 	tm.mu.RLock()
 	psTopic, ok := tm.pubsubTopics[topic]
 	tm.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf("not joined to topic: %s", topic)
+		return Message{}, fmt.Errorf("not joined to topic: %s", topic)
 	}
 
 	msg := Message{
@@ -308,12 +308,15 @@ func (tm *TopicManager) Broadcast(ctx context.Context, topic string, content str
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return err
+		return Message{}, err
 	}
 	if len(data) > MaxMessageSize {
-		return fmt.Errorf("broadcast message too large (%d bytes, max %d)", len(data), MaxMessageSize)
+		return Message{}, fmt.Errorf("broadcast message too large (%d bytes, max %d)", len(data), MaxMessageSize)
 	}
-	return psTopic.Publish(ctx, data)
+	if err := psTopic.Publish(ctx, data); err != nil {
+		return Message{}, err
+	}
+	return msg, nil
 }
 
 func (tm *TopicManager) findPeers(ctx context.Context, namespace string) {

@@ -39,6 +39,7 @@ type Host struct {
 	messenger       *Messenger
 	metadataManager *MetadataManager
 	inbox           *Inbox
+	history         *HistoryStore
 	ps              *pubsub.PubSub
 	logger          *log.Logger
 	identityCleanup func()
@@ -202,6 +203,11 @@ func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() tim
 
 	inbox := NewInbox(DefaultInboxCapacity)
 
+	var history *HistoryStore
+	if dir := identityDir(); dir != "" {
+		history = NewHistoryStore(filepath.Join(dir, "history.jsonl"), logger)
+	}
+
 	// Create GossipSub
 	var ps *pubsub.PubSub
 	ps, err = pubsub.NewGossipSub(ctx, h)
@@ -229,10 +235,12 @@ func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() tim
 		if topic == MetadataTopicName {
 			metadataManager.HandleMetadataMessage(msg, from)
 		} else {
-			inbox.Push(InboxMessage{
+			im := InboxMessage{
 				Message:    msg,
 				ReceivedAt: time.Now().UTC().Format(time.RFC3339),
-			})
+			}
+			history.AppendReceived(im)
+			inbox.Push(im)
 		}
 	})
 
@@ -249,6 +257,7 @@ func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() tim
 		messenger:       messenger,
 		metadataManager: metadataManager,
 		inbox:           inbox,
+		history:         history,
 		ps:              ps,
 		logger:          logger,
 		identityCleanup: identityCleanup,
@@ -374,4 +383,9 @@ func (h *Host) Inbox() *Inbox {
 // MetadataManager returns the metadata manager.
 func (h *Host) MetadataManager() *MetadataManager {
 	return h.metadataManager
+}
+
+// History returns the history store (may be nil if identity dir unavailable).
+func (h *Host) History() *HistoryStore {
+	return h.history
 }

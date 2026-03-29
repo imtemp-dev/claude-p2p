@@ -307,11 +307,15 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 
 	// Broadcast path
 	if params.Topic != "" {
-		if err := n.p2pHost.TopicManager().Broadcast(ctx, params.Topic, params.Message, params.ReplyTo); err != nil {
+		sentMsg, err := n.p2pHost.TopicManager().Broadcast(ctx, params.Topic, params.Message, params.ReplyTo)
+		if err != nil {
 			return &mcp.ToolResult{
 				Content: []mcp.ContentItem{{Type: "text", Text: err.Error()}},
 				IsError: true,
 			}, nil
+		}
+		if n.p2pHost.History() != nil {
+			n.p2pHost.History().AppendSent(sentMsg)
 		}
 		return &mcp.ToolResult{
 			Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("Broadcast sent to topic: %s", params.Topic)}},
@@ -343,7 +347,8 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		}
 	}
 
-	if err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message, params.ReplyTo); err != nil {
+	sentMsg, err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message, params.ReplyTo)
+	if err != nil {
 		errMsg := err.Error()
 		if params.PeerID != decodedPeerID.String() {
 			errMsg = fmt.Sprintf("failed to reach '%s' (%s): %v", params.PeerID, decodedPeerID, err)
@@ -352,6 +357,10 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 			Content: []mcp.ContentItem{{Type: "text", Text: errMsg}},
 			IsError: true,
 		}, nil
+	}
+
+	if n.p2pHost.History() != nil {
+		n.p2pHost.History().AppendSent(sentMsg)
 	}
 
 	successMsg := fmt.Sprintf("Message sent to %s", params.PeerID)

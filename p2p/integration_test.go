@@ -68,7 +68,7 @@ func TestIntegrationP2PCommunication(t *testing.T) {
 	}
 
 	// Send direct message from h1 to h2
-	err = m1.SendDirect(ctx, h2.ID(), "hello from integration test", "")
+	_, err = m1.SendDirect(ctx, h2.ID(), "hello from integration test", "")
 	if err != nil {
 		t.Fatalf("send direct failed: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestIntegrationP2PCommunication(t *testing.T) {
 	}
 
 	// Send message back from h2 to h1
-	err = m2.SendDirect(ctx, h1.ID(), "reply from h2", "")
+	_, err = m2.SendDirect(ctx, h1.ID(), "reply from h2", "")
 	if err != nil {
 		t.Fatalf("send reply failed: %v", err)
 	}

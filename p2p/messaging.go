@@ -51,10 +51,10 @@ func NewMessenger(h host.Host, inbox *Inbox, logger *log.Logger) *Messenger {
 }
 
 // SendDirect sends a direct message to a specific peer.
-func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string) error {
+func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string) (Message, error) {
 	stream, err := m.host.NewStream(ctx, peerID, protocol.ID(ProtocolID))
 	if err != nil {
-		return fmt.Errorf("open stream: %w", err)
+		return Message{}, fmt.Errorf("open stream: %w", err)
 	}
 	msg := Message{
 		ID:        GenerateMessageID(m.host.ID(), &m.seq),
@@ -68,20 +68,20 @@ func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content stri
 	data, err := json.Marshal(msg)
 	if err != nil {
 		stream.Reset()
-		return err
+		return Message{}, err
 	}
 	if len(data) > MaxMessageSize {
 		stream.Reset()
-		return fmt.Errorf("message too large (%d bytes, max %d)", len(data), MaxMessageSize)
+		return Message{}, fmt.Errorf("message too large (%d bytes, max %d)", len(data), MaxMessageSize)
 	}
 	writer := msgio.NewWriter(stream)
 	if err := writer.WriteMsg(data); err != nil {
 		stream.Reset()
-		return err
+		return Message{}, err
 	}
 	stream.CloseWrite()
 	stream.Close()
-	return nil
+	return msg, nil
 }
 
 func (m *Messenger) handleStream(s network.Stream) {
