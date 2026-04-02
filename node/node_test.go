@@ -640,5 +640,153 @@ func TestHandleSendMessage_DuplicateName(t *testing.T) {
 	}
 }
 
+// setupSendTest creates two connected p2p hosts with a Node wrapping the first.
+func setupSendTest(t *testing.T) (n *Node, receiver *p2p.Host, cleanup func()) {
+	t.Helper()
+	ctx := context.Background()
+	logger := testLogger()
+
+	sender, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recv, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		sender.Close()
+		t.Fatal(err)
+	}
+
+	sh := sender.LibP2PHost()
+	rh := recv.LibP2PHost()
+	sh.Peerstore().AddAddrs(rh.ID(), rh.Addrs(), time.Hour)
+	if err := sh.Connect(ctx, rh.Peerstore().PeerInfo(rh.ID())); err != nil {
+		sender.Close()
+		recv.Close()
+		t.Fatalf("connect: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	registry := mcp.NewToolRegistry()
+	resources := mcp.NewResourceRegistry()
+	server := newTestMCPServer(registry, resources)
+	node := &Node{
+		mcpServer: server,
+		p2pHost:   sender,
+		registry:  registry,
+		resources: resources,
+		logger:    logger,
+	}
+	node.registerTools()
+	node.registerResources()
+
+	return node, recv, func() {
+		sender.Close()
+		recv.Close()
+	}
+}
+
+func TestHandleSendMessage_CodeContentType(t *testing.T) {
+	n, receiver, cleanup := setupSendTest(t)
+	defer cleanup()
+
+	result, err := callTool(n, "send_message", map[string]string{
+		"peer_id":      receiver.LibP2PHost().ID().String(),
+		"message":      `func hello() { fmt.Println("hello") }`,
+		"content_type": "code",
+		"filename":     "hello.go",
+		"language":     "go",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content[0].Text)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	msgs := receiver.Inbox().Pop()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message in receiver inbox, got %d", len(msgs))
+	}
+	if msgs[0].ContentType != "code" {
+		t.Errorf("content_type = %q, want %q", msgs[0].ContentType, "code")
+	}
+	if msgs[0].Filename != "hello.go" {
+		t.Errorf("filename = %q, want %q", msgs[0].Filename, "hello.go")
+	}
+	if msgs[0].Language != "go" {
+		t.Errorf("language = %q, want %q", msgs[0].Language, "go")
+	}
+}
+
+func TestHandleSendMessage_PlainTextBackwardCompat(t *testing.T) {
+	n, receiver, cleanup := setupSendTest(t)
+	defer cleanup()
+
+	// Send without content_type — should still work (backward compat)
+	result, err := callTool(n, "send_message", map[string]string{
+		"peer_id": receiver.LibP2PHost().ID().String(),
+		"message": "plain text message",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content[0].Text)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	msgs := receiver.Inbox().Pop()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].ContentType != "" {
+		t.Errorf("expected empty content_type for plain text, got %q", msgs[0].ContentType)
+	}
+	if msgs[0].Content != "plain text message" {
+		t.Errorf("content = %q, want %q", msgs[0].Content, "plain text message")
+	}
+}
+
+func TestHandleSendMessage_InvalidContentType(t *testing.T) {
+	n, cleanup := newTestNode(t, true)
+	defer cleanup()
+
+	result, err := callTool(n, "send_message", map[string]string{
+		"peer_id":      "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N",
+		"message":      "hello",
+		"content_type": "binary",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for invalid content_type")
+	}
+	if !strings.Contains(result.Content[0].Text, "invalid content_type") {
+		t.Errorf("unexpected error message: %s", result.Content[0].Text)
+	}
+}
+
+func TestHandleSendMessage_FilenameWithoutCodeType(t *testing.T) {
+	n, cleanup := newTestNode(t, true)
+	defer cleanup()
+
+	result, err := callTool(n, "send_message", map[string]string{
+		"peer_id":  "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N",
+		"message":  "hello",
+		"filename": "hello.go",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error when filename given without content_type=code")
+	}
+	if !strings.Contains(result.Content[0].Text, "filename and language") {
+		t.Errorf("unexpected error message: %s", result.Content[0].Text)
+	}
+}
+
 // Suppress unused import warning for fmt
 var _ = fmt.Sprintf

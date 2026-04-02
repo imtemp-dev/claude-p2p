@@ -227,7 +227,7 @@ func (mm *MetadataManager) broadcast(ctx context.Context) {
 		mm.logger.Printf("metadata marshal error: %v", err)
 		return
 	}
-	if _, err := mm.topicManager.Broadcast(ctx, MetadataTopicName, string(data), ""); err != nil {
+	if _, err := mm.topicManager.Broadcast(ctx, MetadataTopicName, string(data), MessageOptions{}); err != nil {
 		// Don't log on context cancellation
 		if ctx.Err() == nil {
 			mm.logger.Printf("metadata broadcast error: %v", err)

@@ -127,7 +127,7 @@ func (n *Node) registerTools() {
 	n.registry.Register(mcp.Tool{
 		Name:        "send_message",
 		Description: "Send a message to a specific peer or broadcast to a topic",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"peer_id":{"type":"string","description":"Target peer ID or display name (for direct message)"},"message":{"type":"string","description":"Message content"},"topic":{"type":"string","description":"Topic to broadcast to (alternative to peer_id)"},"reply_to":{"type":"string","description":"Message ID to reply to (for conversation threading)"}},"required":["message"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"peer_id":{"type":"string","description":"Target peer ID or display name (for direct message)"},"message":{"type":"string","description":"Message content"},"topic":{"type":"string","description":"Topic to broadcast to (alternative to peer_id)"},"reply_to":{"type":"string","description":"Message ID to reply to (for conversation threading)"},"content_type":{"type":"string","enum":["text","code"],"description":"Content type: 'text' (default) or 'code' for code snippets/files"},"filename":{"type":"string","description":"Filename for code content (e.g. 'main.go')"},"language":{"type":"string","description":"Programming language for code content (e.g. 'go', 'python')"}},"required":["message"]}`),
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint:    mcp.BoolPtr(false),
 			DestructiveHint: mcp.BoolPtr(false),
@@ -263,10 +263,13 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 	}
 
 	var params struct {
-		PeerID  string `json:"peer_id"`
-		Message string `json:"message"`
-		Topic   string `json:"topic"`
-		ReplyTo string `json:"reply_to"`
+		PeerID      string `json:"peer_id"`
+		Message     string `json:"message"`
+		Topic       string `json:"topic"`
+		ReplyTo     string `json:"reply_to"`
+		ContentType string `json:"content_type"`
+		Filename    string `json:"filename"`
+		Language    string `json:"language"`
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &params); err != nil {
@@ -305,9 +308,30 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		}, nil
 	}
 
+	if params.ContentType != "" && params.ContentType != "text" && params.ContentType != "code" {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("invalid content_type %q: must be \"text\" or \"code\"", params.ContentType)}},
+			IsError: true,
+		}, nil
+	}
+
+	if params.ContentType != "code" && (params.Filename != "" || params.Language != "") {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{Type: "text", Text: "filename and language are only valid when content_type is \"code\""}},
+			IsError: true,
+		}, nil
+	}
+
+	opts := p2p.MessageOptions{
+		ReplyTo:     params.ReplyTo,
+		ContentType: params.ContentType,
+		Filename:    params.Filename,
+		Language:    params.Language,
+	}
+
 	// Broadcast path
 	if params.Topic != "" {
-		sentMsg, err := n.p2pHost.TopicManager().Broadcast(ctx, params.Topic, params.Message, params.ReplyTo)
+		sentMsg, err := n.p2pHost.TopicManager().Broadcast(ctx, params.Topic, params.Message, opts)
 		if err != nil {
 			return &mcp.ToolResult{
 				Content: []mcp.ContentItem{{Type: "text", Text: err.Error()}},
@@ -347,7 +371,7 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		}
 	}
 
-	sentMsg, err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message, params.ReplyTo)
+	sentMsg, err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message, opts)
 	if err != nil {
 		errMsg := err.Error()
 		if params.PeerID != decodedPeerID.String() {
