@@ -33,9 +33,17 @@ type Message struct {
 	Topic       string `json:"topic,omitempty"`
 	ReplyTo     string `json:"reply_to,omitempty"`
 	Timestamp   string `json:"timestamp"`
-	ContentType string `json:"content_type,omitempty"` // "text" (default) or "code"
-	Filename    string `json:"filename,omitempty"`     // for content_type "code"
-	Language    string `json:"language,omitempty"`     // for content_type "code"
+	ContentType string `json:"content_type,omitempty"` // "code" for code snippets; omit for plain text
+	Filename    string `json:"filename,omitempty"`     // only meaningful when ContentType is "code"
+	Language    string `json:"language,omitempty"`     // only meaningful when ContentType is "code"
+}
+
+// MessageOptions carries optional metadata for outgoing messages.
+type MessageOptions struct {
+	ReplyTo     string
+	ContentType string // "code" for code snippets; omit for plain text
+	Filename    string // only meaningful when ContentType is "code"
+	Language    string // only meaningful when ContentType is "code"
 }
 
 // Messenger handles sending and receiving messages over libp2p streams.
@@ -54,7 +62,7 @@ func NewMessenger(h host.Host, inbox *Inbox, logger *log.Logger) *Messenger {
 }
 
 // SendDirect sends a direct message to a specific peer.
-func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string, contentType string, filename string, language string) (Message, error) {
+func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, opts MessageOptions) (Message, error) {
 	stream, err := m.host.NewStream(ctx, peerID, protocol.ID(ProtocolID))
 	if err != nil {
 		return Message{}, fmt.Errorf("open stream: %w", err)
@@ -65,11 +73,11 @@ func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content stri
 		To:          peerID.String(),
 		Content:     content,
 		Type:        "direct",
-		ReplyTo:     replyTo,
+		ReplyTo:     opts.ReplyTo,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		ContentType: contentType,
-		Filename:    filename,
-		Language:    language,
+		ContentType: opts.ContentType,
+		Filename:    opts.Filename,
+		Language:    opts.Language,
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {

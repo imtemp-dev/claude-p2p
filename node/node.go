@@ -308,9 +308,30 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		}, nil
 	}
 
+	if params.ContentType != "" && params.ContentType != "text" && params.ContentType != "code" {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("invalid content_type %q: must be \"text\" or \"code\"", params.ContentType)}},
+			IsError: true,
+		}, nil
+	}
+
+	if params.ContentType != "code" && (params.Filename != "" || params.Language != "") {
+		return &mcp.ToolResult{
+			Content: []mcp.ContentItem{{Type: "text", Text: "filename and language are only valid when content_type is \"code\""}},
+			IsError: true,
+		}, nil
+	}
+
+	opts := p2p.MessageOptions{
+		ReplyTo:     params.ReplyTo,
+		ContentType: params.ContentType,
+		Filename:    params.Filename,
+		Language:    params.Language,
+	}
+
 	// Broadcast path
 	if params.Topic != "" {
-		sentMsg, err := n.p2pHost.TopicManager().Broadcast(ctx, params.Topic, params.Message, params.ReplyTo, params.ContentType, params.Filename, params.Language)
+		sentMsg, err := n.p2pHost.TopicManager().Broadcast(ctx, params.Topic, params.Message, opts)
 		if err != nil {
 			return &mcp.ToolResult{
 				Content: []mcp.ContentItem{{Type: "text", Text: err.Error()}},
@@ -350,7 +371,7 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		}
 	}
 
-	sentMsg, err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message, params.ReplyTo, params.ContentType, params.Filename, params.Language)
+	sentMsg, err := n.p2pHost.Messenger().SendDirect(ctx, decodedPeerID, params.Message, opts)
 	if err != nil {
 		errMsg := err.Error()
 		if params.PeerID != decodedPeerID.String() {
