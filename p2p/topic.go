@@ -272,7 +272,7 @@ func (tm *TopicManager) JoinLocal(topic string) error {
 }
 
 // Broadcast publishes a broadcast message to a topic via GossipSub.
-func (tm *TopicManager) Broadcast(ctx context.Context, topic string, content string, replyTo string) (Message, error) {
+func (tm *TopicManager) Broadcast(ctx context.Context, topic string, content string, replyTo string, contentType string, filename string, language string) (Message, error) {
 	if tm.pubsub == nil {
 		return Message{}, fmt.Errorf("GossipSub not available")
 	}
@@ -298,13 +298,16 @@ func (tm *TopicManager) Broadcast(ctx context.Context, topic string, content str
 	}
 
 	msg := Message{
-		ID:        GenerateMessageID(tm.host.ID(), &tm.seq),
-		From:      tm.host.ID().String(),
-		Content:   content,
-		Type:      "broadcast",
-		Topic:     topic,
-		ReplyTo:   replyTo,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		ID:          GenerateMessageID(tm.host.ID(), &tm.seq),
+		From:        tm.host.ID().String(),
+		Content:     content,
+		Type:        "broadcast",
+		Topic:       topic,
+		ReplyTo:     replyTo,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		ContentType: contentType,
+		Filename:    filename,
+		Language:    language,
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {

@@ -640,5 +640,134 @@ func TestHandleSendMessage_DuplicateName(t *testing.T) {
 	}
 }
 
+func TestHandleSendMessage_CodeContentType(t *testing.T) {
+	ctx := context.Background()
+	logger := testLogger()
+
+	host1, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host1.Close()
+
+	host2, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host2.Close()
+
+	h1 := host1.LibP2PHost()
+	h2 := host2.LibP2PHost()
+	h1.Peerstore().AddAddrs(h2.ID(), h2.Addrs(), time.Hour)
+	if err := h1.Connect(ctx, h2.Peerstore().PeerInfo(h2.ID())); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	registry := mcp.NewToolRegistry()
+	resources := mcp.NewResourceRegistry()
+	server := newTestMCPServer(registry, resources)
+	n := &Node{
+		mcpServer: server,
+		p2pHost:   host1,
+		registry:  registry,
+		resources: resources,
+		logger:    logger,
+	}
+	n.registerTools()
+	n.registerResources()
+
+	result, err := callTool(n, "send_message", map[string]string{
+		"peer_id":      h2.ID().String(),
+		"message":      `func hello() { fmt.Println("hello") }`,
+		"content_type": "code",
+		"filename":     "hello.go",
+		"language":     "go",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content[0].Text)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	msgs := host2.Inbox().Pop()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message in host2 inbox, got %d", len(msgs))
+	}
+	if msgs[0].ContentType != "code" {
+		t.Errorf("content_type = %q, want %q", msgs[0].ContentType, "code")
+	}
+	if msgs[0].Filename != "hello.go" {
+		t.Errorf("filename = %q, want %q", msgs[0].Filename, "hello.go")
+	}
+	if msgs[0].Language != "go" {
+		t.Errorf("language = %q, want %q", msgs[0].Language, "go")
+	}
+}
+
+func TestHandleSendMessage_PlainTextBackwardCompat(t *testing.T) {
+	ctx := context.Background()
+	logger := testLogger()
+
+	host1, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host1.Close()
+
+	host2, err := p2p.NewHostForTest(ctx, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host2.Close()
+
+	h1 := host1.LibP2PHost()
+	h2 := host2.LibP2PHost()
+	h1.Peerstore().AddAddrs(h2.ID(), h2.Addrs(), time.Hour)
+	if err := h1.Connect(ctx, h2.Peerstore().PeerInfo(h2.ID())); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	time.Sleep(200 * time.Millisecond)
+
+	registry := mcp.NewToolRegistry()
+	resources := mcp.NewResourceRegistry()
+	server := newTestMCPServer(registry, resources)
+	n := &Node{
+		mcpServer: server,
+		p2pHost:   host1,
+		registry:  registry,
+		resources: resources,
+		logger:    logger,
+	}
+	n.registerTools()
+	n.registerResources()
+
+	// Send without content_type — should still work (backward compat)
+	result, err := callTool(n, "send_message", map[string]string{
+		"peer_id": h2.ID().String(),
+		"message": "plain text message",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content[0].Text)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	msgs := host2.Inbox().Pop()
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+	if msgs[0].ContentType != "" {
+		t.Errorf("expected empty content_type for plain text, got %q", msgs[0].ContentType)
+	}
+	if msgs[0].Content != "plain text message" {
+		t.Errorf("content = %q, want %q", msgs[0].Content, "plain text message")
+	}
+}
+
 // Suppress unused import warning for fmt
 var _ = fmt.Sprintf

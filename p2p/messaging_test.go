@@ -37,7 +37,7 @@ func TestSendDirectMessage(t *testing.T) {
 	h1.Connect(ctx, peer.AddrInfo{ID: h2.ID(), Addrs: h2.Addrs()})
 
 	// Send message from h1 to h2
-	_, err = m1.SendDirect(ctx, h2.ID(), "hello from h1", "")
+	_, err = m1.SendDirect(ctx, h2.ID(), "hello from h1", "", "", "", "")
 	if err != nil {
 		t.Fatalf("SendDirect failed: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestSendToDisconnectedPeer(t *testing.T) {
 
 	// Try to send to a random peer ID (not connected)
 	fakePeerID, _ := peer.Decode("QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N")
-	_, err = m.SendDirect(ctx, fakePeerID, "hello", "")
+	_, err = m.SendDirect(ctx, fakePeerID, "hello", "", "", "", "")
 	if err == nil {
 		t.Fatal("expected error sending to disconnected peer")
 	}

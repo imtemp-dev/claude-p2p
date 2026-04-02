@@ -25,14 +25,17 @@ const (
 
 // Message is the wire format for both direct and broadcast messages.
 type Message struct {
-	ID        string `json:"id"`
-	From      string `json:"from"`
-	To        string `json:"to,omitempty"`
-	Content   string `json:"content"`
-	Type      string `json:"type"`
-	Topic     string `json:"topic,omitempty"`
-	ReplyTo   string `json:"reply_to,omitempty"`
-	Timestamp string `json:"timestamp"`
+	ID          string `json:"id"`
+	From        string `json:"from"`
+	To          string `json:"to,omitempty"`
+	Content     string `json:"content"`
+	Type        string `json:"type"`
+	Topic       string `json:"topic,omitempty"`
+	ReplyTo     string `json:"reply_to,omitempty"`
+	Timestamp   string `json:"timestamp"`
+	ContentType string `json:"content_type,omitempty"` // "text" (default) or "code"
+	Filename    string `json:"filename,omitempty"`     // for content_type "code"
+	Language    string `json:"language,omitempty"`     // for content_type "code"
 }
 
 // Messenger handles sending and receiving messages over libp2p streams.
@@ -51,19 +54,22 @@ func NewMessenger(h host.Host, inbox *Inbox, logger *log.Logger) *Messenger {
 }
 
 // SendDirect sends a direct message to a specific peer.
-func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string) (Message, error) {
+func (m *Messenger) SendDirect(ctx context.Context, peerID peer.ID, content string, replyTo string, contentType string, filename string, language string) (Message, error) {
 	stream, err := m.host.NewStream(ctx, peerID, protocol.ID(ProtocolID))
 	if err != nil {
 		return Message{}, fmt.Errorf("open stream: %w", err)
 	}
 	msg := Message{
-		ID:        GenerateMessageID(m.host.ID(), &m.seq),
-		From:      m.host.ID().String(),
-		To:        peerID.String(),
-		Content:   content,
-		Type:      "direct",
-		ReplyTo:   replyTo,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		ID:          GenerateMessageID(m.host.ID(), &m.seq),
+		From:        m.host.ID().String(),
+		To:          peerID.String(),
+		Content:     content,
+		Type:        "direct",
+		ReplyTo:     replyTo,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		ContentType: contentType,
+		Filename:    filename,
+		Language:    language,
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
