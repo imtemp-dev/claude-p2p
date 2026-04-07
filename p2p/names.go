@@ -78,13 +78,24 @@ func loadOrGenerateDisplayName(dir string) string {
 }
 
 // sanitizeDisplayName cleans a user-provided display name.
+// Strips control characters, injection metacharacters, and Unicode bidi overrides.
 func sanitizeDisplayName(name string) string {
 	var b strings.Builder
 	for _, r := range name {
-		if r < 0x20 || r == 0 {
+		switch {
+		case r < 0x20 || r == 0:
+			continue // control characters
+		case r == '"' || r == '<' || r == '>' || r == '&':
+			continue // injection metacharacters (AppleScript, markup)
+		case r == 0x200F: // RIGHT-TO-LEFT MARK
 			continue
+		case r >= 0x202A && r <= 0x202E: // bidi embedding/override
+			continue
+		case r >= 0x2066 && r <= 0x2069: // bidi isolate
+			continue
+		default:
+			b.WriteRune(r)
 		}
-		b.WriteRune(r)
 	}
 	s := strings.TrimSpace(b.String())
 	s = strings.ReplaceAll(s, " ", "-")

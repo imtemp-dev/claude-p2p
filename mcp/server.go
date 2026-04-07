@@ -230,14 +230,16 @@ func (s *Server) handleToolsCall(ctx context.Context, id any, params json.RawMes
 	// Panic recovery
 	defer func() {
 		if r := recover(); r != nil {
-			s.sendResponse(&JSONRPCResponse{
+			if err := s.sendResponse(&JSONRPCResponse{
 				JSONRPC: "2.0",
 				ID:      id,
 				Result: ToolResult{
 					Content: []ContentItem{{Type: "text", Text: fmt.Sprintf("tool panic: %v", r)}},
 					IsError: true,
 				},
-			})
+			}); err != nil {
+				s.logger.Printf("panic recovery send error: %v", err)
+			}
 		}
 	}()
 

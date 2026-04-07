@@ -235,6 +235,7 @@ func NewHost(ctx context.Context, logger *log.Logger, getLastToolCall func() tim
 		if topic == MetadataTopicName {
 			metadataManager.HandleMetadataMessage(msg, from)
 		} else {
+			msg.From = from.String() // pin to authenticated transport identity
 			im := InboxMessage{
 				Message:    msg,
 				ReceivedAt: time.Now().UTC().Format(time.RFC3339),

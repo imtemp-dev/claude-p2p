@@ -76,15 +76,24 @@ func (h *HistoryStore) append(entry HistoryEntry) {
 		h.logger.Printf("history write error: %v", err)
 		return
 	}
-	defer f.Close()
 
 	data, err := json.Marshal(entry)
 	if err != nil {
 		h.logger.Printf("history marshal error: %v", err)
+		f.Close()
 		return
 	}
-	f.Write(data)
-	f.Write([]byte("\n"))
+	if _, err := f.Write(data); err != nil {
+		h.logger.Printf("history write error: %v", err)
+		f.Close()
+		return
+	}
+	if _, err := f.Write([]byte("\n")); err != nil {
+		h.logger.Printf("history write newline error: %v", err)
+		f.Close()
+		return
+	}
+	f.Close() // explicit close before maybeRotate to avoid inode race on rotation
 
 	h.maybeRotate()
 }
@@ -178,10 +187,25 @@ func (h *HistoryStore) maybeRotate() {
 	if err != nil {
 		return
 	}
+	writeErr := false
 	for _, line := range lines {
-		tmp.Write([]byte(line))
-		tmp.Write([]byte("\n"))
+		if _, err := tmp.Write([]byte(line)); err != nil {
+			writeErr = true
+			break
+		}
+		if _, err := tmp.Write([]byte("\n")); err != nil {
+			writeErr = true
+			break
+		}
 	}
 	tmp.Close()
-	os.Rename(tmpPath, h.filePath)
+	if writeErr {
+		h.logger.Printf("history rotation write error, keeping original file")
+		os.Remove(tmpPath)
+		return
+	}
+	if err := os.Rename(tmpPath, h.filePath); err != nil {
+		h.logger.Printf("history rotation rename error: %v", err)
+		os.Remove(tmpPath)
+	}
 }

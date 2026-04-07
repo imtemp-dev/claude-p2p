@@ -92,7 +92,7 @@ func NewMetadataManager(ctx context.Context, h host.Host, tracker *PeerTracker, 
 	dirBase := filepath.Base(dir)
 	displayName := os.Getenv("CLAUDE_P2P_NAME")
 	if displayName == "" {
-		displayName = loadOrGenerateDisplayName(dirBase)
+		displayName = sanitizeDisplayName(loadOrGenerateDisplayName(dirBase))
 	} else {
 		displayName = sanitizeDisplayName(displayName)
 	}
@@ -178,7 +178,8 @@ func (mm *MetadataManager) HandleMetadataMessage(msg Message, from peer.ID) {
 		return
 	}
 
-	meta.DisplayName = truncateFieldUTF8(meta.DisplayName, MaxDisplayNameLength)
+	meta.PeerID = from.String() // pin to authenticated transport identity
+	meta.DisplayName = truncateFieldUTF8(sanitizeDisplayName(meta.DisplayName), MaxDisplayNameLength)
 	meta.Summary = truncateField(meta.Summary, MaxSummaryLength)
 	meta.Username = truncateField(meta.Username, MaxUsernameLength)
 	meta.Repo = truncateField(meta.Repo, MaxRepoLength)

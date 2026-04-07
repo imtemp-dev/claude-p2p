@@ -287,9 +287,11 @@ func (n *Node) handleSendMessage(ctx context.Context, args json.RawMessage) (*mc
 		}, nil
 	}
 
-	if len(params.Message) > p2p.MaxMessageSize {
+	// Check content size accounting for JSON envelope overhead (~512 bytes for Message fields).
+	// The transport also enforces MaxMessageSize on the full serialised payload.
+	if len(params.Message) > p2p.MaxMessageSize-512 {
 		return &mcp.ToolResult{
-			Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("message too large (%d bytes, max %d)", len(params.Message), p2p.MaxMessageSize)}},
+			Content: []mcp.ContentItem{{Type: "text", Text: fmt.Sprintf("message too large (%d bytes, max %d)", len(params.Message), p2p.MaxMessageSize-512)}},
 			IsError: true,
 		}, nil
 	}
@@ -550,15 +552,17 @@ func (n *Node) handleSetName(_ context.Context, args json.RawMessage) (*mcp.Tool
 	var params struct {
 		Name string `json:"name"`
 	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return &mcp.ToolResult{
-			Content: []mcp.ContentItem{{Type: "text", Text: "Invalid arguments: " + err.Error()}},
-			IsError: true,
-		}, nil
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return &mcp.ToolResult{
+				Content: []mcp.ContentItem{{Type: "text", Text: "invalid arguments: " + err.Error()}},
+				IsError: true,
+			}, nil
+		}
 	}
 	if params.Name == "" {
 		return &mcp.ToolResult{
-			Content: []mcp.ContentItem{{Type: "text", Text: "Name cannot be empty"}},
+			Content: []mcp.ContentItem{{Type: "text", Text: "name cannot be empty"}},
 			IsError: true,
 		}, nil
 	}
@@ -598,27 +602,33 @@ func (n *Node) registerResources() {
 		desc := fmt.Sprintf("⚠ peer '%s' disconnected. Use list_peers to see connected peers.", displayName)
 		n.registry.UpdateDescription("list_peers", desc)
 		if n.mcpServer.IsInitialized() {
-			n.mcpServer.SendNotification("notifications/tools/list_changed", nil)
+			if err := n.mcpServer.SendNotification("notifications/tools/list_changed", nil); err != nil {
+				n.logger.Printf("send tools/list_changed notification: %v", err)
+			}
 		}
-	
+
 		// Channel notification (unless lazy mode)
 		if os.Getenv("CLAUDE_P2P_MODE") != "lazy" && n.mcpServer.IsInitialized() {
 			meta := map[string]string{
 				"from": displayName,
 				"type": "disconnect",
 			}
-			n.mcpServer.SendNotification("notifications/claude/channel",
+			if err := n.mcpServer.SendNotification("notifications/claude/channel",
 				mcp.ChannelNotificationParams{
 					Content: fmt.Sprintf("Peer '%s' has disconnected.", displayName),
 					Meta:    meta,
-				})
+				}); err != nil {
+				n.logger.Printf("send channel notification: %v", err)
+			}
 		}
-	
+
 		// Desktop notification
+		// Note: sanitizeDisplayName strips `"` as primary protection; %q is defense-in-depth.
 		switch runtime.GOOS {
 		case "darwin":
 			go exec.Command("osascript", "-e",
-				fmt.Sprintf(`display notification "Peer '%s' disconnected" with title "claude-p2p"`, displayName),
+				fmt.Sprintf(`display notification %q with title "claude-p2p"`,
+					fmt.Sprintf("Peer '%s' disconnected", displayName)),
 			).Run()
 		case "linux":
 			go exec.Command("notify-send", "claude-p2p", fmt.Sprintf("Peer '%s' disconnected", displayName)).Run()
