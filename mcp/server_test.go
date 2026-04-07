@@ -390,8 +390,8 @@ func TestVersionNegotiation(t *testing.T) {
 	if !ok {
 		t.Fatal("expected result in initialize response")
 	}
-	if v, _ := result["protocolVersion"].(string); v != "2025-03-26" {
-		t.Errorf("protocolVersion = %q, want %q (server preferred)", v, "2025-03-26")
+	if v, _ := result["protocolVersion"].(string); v != "2025-11-25" {
+		t.Errorf("protocolVersion = %q, want %q (server preferred)", v, "2025-11-25")
 	}
 }
 
@@ -571,8 +571,8 @@ func TestEmptyProtocolVersion(t *testing.T) {
 		t.Fatalf("expected 1 response, got %d", len(responses))
 	}
 	result, _ := responses[0]["result"].(map[string]any)
-	if v, _ := result["protocolVersion"].(string); v != "2025-03-26" {
-		t.Errorf("empty version should get preferred %q, got %q", "2025-03-26", v)
+	if v, _ := result["protocolVersion"].(string); v != "2025-11-25" {
+		t.Errorf("empty version should get preferred %q, got %q", "2025-11-25", v)
 	}
 }
 

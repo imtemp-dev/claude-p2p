@@ -19,9 +19,10 @@ import (
 var supportedVersions = map[string]bool{
 	"2024-11-05": true,
 	"2025-03-26": true,
+	"2025-11-25": true,
 }
 
-const preferredVersion = "2025-03-26"
+const preferredVersion = "2025-11-25"
 
 // Server is an MCP JSON-RPC 2.0 server over stdio.
 type Server struct {

@@ -129,8 +129,9 @@ type ToolCallParams struct {
 
 // ToolResult is the result for tools/call.
 type ToolResult struct {
-	Content []ContentItem `json:"content"`
-	IsError bool          `json:"isError,omitempty"`
+	Content []ContentItem  `json:"content"`
+	IsError bool           `json:"isError,omitempty"`
+	Meta    map[string]any `json:"_meta,omitempty"`
 }
 
 // ContentItem is a content block in a tool result.

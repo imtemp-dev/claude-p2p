@@ -251,6 +251,7 @@ func (n *Node) handleListPeers(_ context.Context, args json.RawMessage) (*mcp.To
 	}
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{{Type: "text", Text: string(data)}},
+		Meta:    map[string]any{"anthropic/maxResultSizeChars": 500000},
 	}, nil
 }
 
@@ -504,6 +505,7 @@ func (n *Node) handleGetMessages(_ context.Context, args json.RawMessage) (*mcp.
 	}
 	return &mcp.ToolResult{
 		Content: []mcp.ContentItem{{Type: "text", Text: string(data)}},
+		Meta:    map[string]any{"anthropic/maxResultSizeChars": 500000},
 	}, nil
 }
 
